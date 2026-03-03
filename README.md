@@ -170,8 +170,6 @@ Educational project - Free to use with attribution
 
 ## 👥 Authors
 
-IoT Security Research - 2026
-
 ---
 
 **Getting Started**: Xem [system_detection/README.md](system_detection/README.md) để bắt đầu!
