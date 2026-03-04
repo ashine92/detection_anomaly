@@ -48,3 +48,5 @@ Thumbs.db
 
 # System logs
 /tmp/
+
+dataset/*.csv
