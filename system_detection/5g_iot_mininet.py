@@ -14,7 +14,7 @@ import sys
 try:
     from mn_wifi.net import Mininet_wifi
     from mn_wifi.node import Station, OVSKernelAP
-    from mn_wifi.cli import CLI_wifi
+    from mn_wifi.cli import CLI
     from mn_wifi.link import wmediumd
     from mn_wifi.wmediumdConnector import interference
 except ImportError:
@@ -144,7 +144,7 @@ def runSimulation():
     info("\n")
     
     # Mở CLI để tương tác
-    CLI_wifi(net)
+    CLI(net)
     
     info("\n*** Stopping Network\n")
     net.stop()

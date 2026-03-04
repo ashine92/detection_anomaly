@@ -50,8 +50,7 @@ class IoTSensorStation:
                 random.randint(0, 1),          # INT
                 random.randint(0, 1),          # REQ
                 random.randint(0, 1),          # RST
-                random.randint(0, 1),          # Status
-                random.randint(0, 1)           # cs0
+                random.randint(0, 1)           # Status
             ]
         else:
             # Dữ liệu bình thường
@@ -79,8 +78,7 @@ class IoTSensorStation:
                 0,                             # INT
                 random.randint(0, 1),          # REQ
                 0,                             # RST
-                random.randint(0, 1),          # Status
-                random.randint(0, 1)           # cs0
+                random.randint(0, 1)           # Status
             ]
         
         return features

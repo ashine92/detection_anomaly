@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Logs
+/tmp/*.log
+*.log
+
+# Mininet temp files
+*.apconf
+*.apsconf
+mn*.apconf
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Old/backup files
+*_OLD.*
+*.bak
+*.backup
+
+# Runtime files
+*.pid
+*.sock
+
+# System logs
+/tmp/

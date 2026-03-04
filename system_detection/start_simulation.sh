@@ -23,8 +23,8 @@ if ! sudo mn --version &> /dev/null; then
 fi
 
 # Kiểm tra model files
-MODEL_FILE="decision_tree_model_20260227_205406.pkl"
-SCALER_FILE="scaler_20260227_205406.pkl"
+MODEL_FILE="/home/ashine/Downloads/detection_anomaly/model/decision_tree_model_20260227_205406.pkl"
+SCALER_FILE="/home/ashine/Downloads/detection_anomaly/model/scaler_20260227_205406.pkl"
 
 if [ ! -f "$MODEL_FILE" ]; then
     echo "Error: Model file not found: $MODEL_FILE"
