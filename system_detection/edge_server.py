@@ -13,7 +13,7 @@ import threading
 
 class EdgeIoTDetectionServer:
     """Server phát hiện anomaly chạy trên Edge"""
-    
+    print("File này")
     def __init__(self, model_path, scaler_path, host='0.0.0.0', port=5000):
         self.host = host
         self.port = port
