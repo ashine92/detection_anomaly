@@ -30,56 +30,46 @@ class DashboardClient:
             logger.warning(f"⚠ Dashboard not available - metrics won't be sent ({e})")
             self.enabled = False
     
-    def send_metrics(self, device_id, throughput, latency, packet_loss, rssi):
+    def send_metrics(self, device_id, timestamp, prediction, confidence,
+                     probability_malicious, **raw_features):
         """
-        Gửi network metrics đến dashboard để AI phân tích
-        
+        Gửi kết quả từ Edge AI và raw features đến dashboard.
+        Chỉ truyền tải dữ liệu đã có, không tính toán thêm.
+
         Args:
             device_id (str): ID thiết bị
-            throughput (float): Throughput (Mbps)
-            latency (float): Latency (ms)
-            packet_loss (float): Packet loss (%)
-            rssi (float): Signal strength (dBm)
-        
+            timestamp (str): Thời gian (từ Edge Server)
+            prediction (str): 'Benign' hoặc 'Malicious'
+            confidence (float): Xác suất của class dự đoán (max probability)
+            probability_malicious (float): Xác suất thuộc class Malicious (= anomaly score)
+            **raw_features: Các feature thực từ 24 features
+                (tot_bytes, src_bytes, tcp_rtt, s_hops, s_ttl, d_ttl,
+                 s_mean_pkt_sz, icmp, tcp_flag, rst_flag)
+
         Returns:
             dict or False: Detection result hoặc False nếu lỗi
         """
         if not self.enabled:
             return False
-        
+
         try:
             data = {
-                "timestamp": datetime.now().isoformat(),
-                "device_id": device_id,
-                "throughput": float(throughput),
-                "latency": float(latency),
-                "packet_loss": float(packet_loss),
-                "rssi": float(rssi)
+                'timestamp':            timestamp,
+                'device_id':            device_id,
+                'prediction':           prediction,
+                'confidence':           float(confidence),
+                'probability_malicious': float(probability_malicious),
             }
-            
-            response = requests.post(
-                self.dashboard_url,
-                json=data,
-                timeout=1
-            )
-            
+            data.update(raw_features)  # tất cả raw feature values
+
+            response = requests.post(self.dashboard_url, json=data, timeout=1)
+
             if response.status_code == 200:
-                result = response.json()
-                detection = result.get('detection', {})
-                
-                # Log nếu phát hiện anomaly
-                if detection.get('is_anomaly'):
-                    logger.warning(
-                        f"🚨 Dashboard AI detected anomaly for {device_id}: "
-                        f"Score={detection['anomaly_score']:.3f}, "
-                        f"Severity={detection['severity']}"
-                    )
-                
-                return detection
+                return response.json().get('detection', {})
             else:
                 logger.error(f"✗ Dashboard error: HTTP {response.status_code}")
                 return False
-                
+
         except Exception as e:
             logger.error(f"✗ Error sending to dashboard: {e}")
             return False

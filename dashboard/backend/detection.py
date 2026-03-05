@@ -1,12 +1,17 @@
 """
-Anomaly Detection Module
-Handles AI model loading, prediction, and anomaly detection logic
+Anomaly Detection Module — DEPRECATED / KHÔNG CÒN ĐƯỢC SỬ DỤNG
+=================================================================
+Module này (4-metric rule-based AI) đã bị vô hiệu hoá.
 
-This module integrates the trained Decision Tree model for
-real-time anomaly detection on 5G-IoT network metrics.
+Tất cả phát hiện anomaly hiện nay được thực hiện bởi:
+  → edge_server_with_dashboard.py  (24-feature Decision Tree)
+
+Dashboard chỉ nhận và hiển thị kết quả từ Edge AI.
+File này được giữ lại để tham khảo, KHÔNG được import trong app.py.
 """
 
 import pickle
+import joblib
 import numpy as np
 import os
 from typing import Dict, Tuple, Optional
@@ -53,17 +58,17 @@ class AnomalyDetector:
             
             # Load Decision Tree model
             with open(config.MODEL_PATH, 'rb') as f:
-                self.model = pickle.load(f)
+                self.model = joblib.load(f)
             logger.info(f"✓ Model loaded: {config.MODEL_PATH}")
             
             # Load scaler (for feature normalization)
             with open(config.SCALER_PATH, 'rb') as f:
-                self.scaler = pickle.load(f)
+                self.scaler = joblib.load(f)
             logger.info(f"✓ Scaler loaded: {config.SCALER_PATH}")
             
             # Load feature names
             with open(config.FEATURE_NAMES_PATH, 'rb') as f:
-                self.feature_names = pickle.load(f)
+                self.feature_names = joblib.load(f)
             logger.info(f"✓ Feature names loaded: {self.feature_names}")
             
             self.model_loaded = True
@@ -139,20 +144,21 @@ class AnomalyDetector:
                 logger.error("Preprocessing failed, using mock detection")
                 return self._mock_predict(metrics)
             
-            # Get prediction (0 = normal, 1 = anomaly)
+            # Get prediction — model returns string class: 'Benign' or 'Malicious'
             prediction = self.model.predict(features)[0]
             
             # Get prediction probabilities (anomaly score)
             if hasattr(self.model, 'predict_proba'):
                 probabilities = self.model.predict_proba(features)[0]
-                # Anomaly score = probability of being anomaly (class 1)
-                anomaly_score = float(probabilities[1])
+                classes = self.model.classes_.tolist()
+                # Anomaly score = probability of 'Malicious' class
+                malicious_idx = classes.index('Malicious') if 'Malicious' in classes else 1
+                anomaly_score = float(probabilities[malicious_idx])
             else:
-                # If model doesn't support probabilities, use binary prediction
-                anomaly_score = float(prediction)
+                anomaly_score = 1.0 if prediction == 'Malicious' else 0.0
             
             # Convert prediction to label
-            prediction_label = 'anomaly' if prediction == 1 else 'normal'
+            prediction_label = 'anomaly' if prediction == 'Malicious' else 'normal'
             
             logger.info(f"Prediction: {prediction_label} (score: {anomaly_score:.3f})")
             

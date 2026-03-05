@@ -18,8 +18,8 @@ class DataStorage:
     In-memory data storage with FIFO queues
     
     Stores:
-    - Network metrics (throughput, latency, packet_loss, rssi)
-    - Anomaly detection results
+    - Edge AI detection results + raw network features
+    - Anomaly events
     - Running statistics
     """
     
@@ -33,12 +33,12 @@ class DataStorage:
         
         # Statistics tracking
         self.stats = {
-            'total_requests': 0,        # Total metrics received
-            'total_anomalies': 0,       # Total anomalies detected
-            'anomaly_rate': 0.0,        # Percentage of anomalies
-            'avg_throughput': 0.0,      # Average throughput (Mbps)
-            'avg_latency': 0.0,         # Average latency (ms)
-            'last_update': None         # Last update timestamp
+            'total_requests':   0,
+            'total_anomalies':  0,
+            'anomaly_rate':     0.0,
+            'avg_anomaly_score': 0.0,  # average probability_malicious
+            'avg_confidence':   0.0,   # average model confidence
+            'last_update':      None
         }
     
     def add_metric(self, metric_data: Dict) -> None:
@@ -140,37 +140,29 @@ class DataStorage:
         self.anomaly_events.clear()
         
         self.stats = {
-            'total_requests': 0,
-            'total_anomalies': 0,
-            'anomaly_rate': 0.0,
-            'avg_throughput': 0.0,
-            'avg_latency': 0.0,
-            'last_update': None
+            'total_requests':    0,
+            'total_anomalies':   0,
+            'anomaly_rate':      0.0,
+            'avg_anomaly_score': 0.0,
+            'avg_confidence':    0.0,
+            'last_update':       None
         }
     
     def _update_statistics(self) -> None:
-        """
-        Update running statistics
-        Called internally after adding new data
-        """
-        # Calculate averages if we have data
+        """Update running statistics after adding new data"""
         if len(self.metrics_data) > 0:
-            # Average throughput
-            throughputs = [m.get('throughput', 0) for m in self.metrics_data]
-            self.stats['avg_throughput'] = round(statistics.mean(throughputs), 2)
-            
-            # Average latency
-            latencies = [m.get('latency', 0) for m in self.metrics_data]
-            self.stats['avg_latency'] = round(statistics.mean(latencies), 2)
-        
-        # Calculate anomaly rate (percentage)
+            scores = [m.get('anomaly_score', 0.0) for m in self.metrics_data]
+            self.stats['avg_anomaly_score'] = round(statistics.mean(scores), 4)
+
+            confs = [m.get('confidence', 0.0) for m in self.metrics_data]
+            self.stats['avg_confidence'] = round(statistics.mean(confs), 4)
+
         if self.stats['total_requests'] > 0:
             rate = (self.stats['total_anomalies'] / self.stats['total_requests']) * 100
             self.stats['anomaly_rate'] = round(rate, 2)
         else:
             self.stats['anomaly_rate'] = 0.0
-        
-        # Update timestamp
+
         self.stats['last_update'] = datetime.now().isoformat()
     
     def get_dashboard_data(self) -> Dict:

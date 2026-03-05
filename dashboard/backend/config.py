@@ -7,7 +7,8 @@ import os
 
 # Base directory paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(BASE_DIR)
+DASHBOARD_DIR = os.path.dirname(BASE_DIR)          # dashboard/
+PROJECT_ROOT = os.path.dirname(DASHBOARD_DIR)      # detection_anomaly/
 MODEL_DIR = os.path.join(PROJECT_ROOT, 'model')
 
 
@@ -25,9 +26,9 @@ class Config:
     
     # ========== AI Model Configuration ==========
     # Model files (auto-detect latest)
-    MODEL_PATH = os.path.join(MODEL_DIR, 'decision_tree_model_20260227_205406.pkl')
-    SCALER_PATH = os.path.join(MODEL_DIR, 'scaler_20260227_205406.pkl')
-    FEATURE_NAMES_PATH = os.path.join(MODEL_DIR, 'feature_names_20260227_205406.pkl')
+    MODEL_PATH = os.path.join(MODEL_DIR, 'decision_tree_model_20260305_223751.pkl')
+    SCALER_PATH = os.path.join(MODEL_DIR, 'scaler_20260305_223751.pkl')
+    FEATURE_NAMES_PATH = os.path.join(MODEL_DIR, 'feature_names_20260305_223751.pkl')
     
     # Model type: 'trained' or 'mock'
     MODEL_TYPE = 'trained'  # Use trained model if files exist
