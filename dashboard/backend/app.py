@@ -17,8 +17,10 @@ import logging
 
 # Import our modules
 from config import current_config as config
-from detection import detector
 from storage import storage
+# Note: detection.py (4-metric AI) is no longer used.
+# All anomaly detection is performed by edge_server_with_dashboard.py
+# using the full 24-feature Decision Tree model.
 
 # Setup logging
 logging.basicConfig(
@@ -50,93 +52,97 @@ def index():
 @app.route('/api/metrics', methods=['POST'])
 def receive_metrics():
     """
-    Receive network metrics and perform AI-powered anomaly detection
-    
-    Expected JSON format:
+    Receive real AI results + raw features from Edge Server.
+    Expected JSON (sent by edge_server_with_dashboard.py):
     {
-        "timestamp": "2024-01-01T12:00:00",
-        "device_id": "IoT_Device_1",
-        "throughput": 45.5,
-        "latency": 12.3,
-        "packet_loss": 0.5,
-        "rssi": -65
+        "timestamp":             "2026-03-06 12:00:00",
+        "device_id":             "sta1",
+        "prediction":            "Benign" | "Malicious",
+        "confidence":            0.99,
+        "probability_malicious": 0.0,      ← this is the anomaly score
+        "tot_bytes":             98.0,
+        "src_bytes":             98.0,
+        "tcp_rtt":               0.0,
+        "s_hops":                6.0,
+        "s_ttl":                 58.0,
+        "d_ttl":                 0.0,
+        "s_mean_pkt_sz":         98.0,
+        "icmp":                  0,
+        "tcp_flag":              0,
+        "rst_flag":              0
     }
-    
-    Process flow:
-    1. Validate input data
-    2. Run AI model for anomaly detection
-    3. Store metrics and results
-    4. Return detection results
     """
     try:
-        # Get JSON data from request
         data = request.get_json()
-        
+
         # Validate required fields
-        required_fields = ['timestamp', 'device_id', 'throughput', 
-                          'latency', 'packet_loss', 'rssi']
-        
-        missing_fields = [f for f in required_fields if f not in data]
-        if missing_fields:
-            return jsonify({
-                'error': f'Missing required fields: {", ".join(missing_fields)}'
-            }), 400
-        
-        # Extract metrics for AI model
-        metrics = {
-            'throughput': float(data['throughput']),
-            'latency': float(data['latency']),
-            'packet_loss': float(data['packet_loss']),
-            'rssi': float(data['rssi'])
+        required = ['timestamp', 'device_id', 'prediction',
+                    'confidence', 'probability_malicious']
+        missing = [f for f in required if f not in data]
+        if missing:
+            return jsonify({'error': f'Missing fields: {", ".join(missing)}'}), 400
+
+        prediction   = data['prediction']          # 'Benign' or 'Malicious'
+        confidence   = float(data['confidence'])
+        # anomaly_score = probability of being Malicious (0.0 = definitely benign)
+        anomaly_score = round(float(data['probability_malicious']), 4)
+
+        is_anomaly       = (prediction == 'Malicious')
+        prediction_label = 'anomaly' if is_anomaly else 'normal'
+
+        if anomaly_score >= 0.9:
+            severity = 'critical'
+        elif anomaly_score >= 0.7:
+            severity = 'high'
+        elif anomaly_score >= 0.5:
+            severity = 'medium'
+        else:
+            severity = 'low'
+
+        detection_result = {
+            'prediction_label':    prediction_label,
+            'anomaly_score':       anomaly_score,
+            'confidence':          round(confidence, 4),
+            'severity':            severity,
+            'is_anomaly':          is_anomaly,
+            'model_type':          'edge_ai_24_features',
         }
-        
-        # ========== AI ANOMALY DETECTION ==========
-        # Run detection model
-        detection_result = detector.analyze_metrics(metrics)
-        
-        # Prepare complete data record
+
+        # Build the stored record — only real values, nothing computed
+        RAW_FEATURE_KEYS = [
+            'tot_bytes', 'src_bytes', 'tcp_rtt', 's_hops',
+            's_ttl', 'd_ttl', 's_mean_pkt_sz',
+            'icmp', 'tcp_flag', 'rst_flag',
+        ]
         complete_data = {
-            'timestamp': data['timestamp'],
-            'device_id': data['device_id'],
-            'throughput': metrics['throughput'],
-            'latency': metrics['latency'],
-            'packet_loss': metrics['packet_loss'],
-            'rssi': metrics['rssi'],
-            'anomaly_score': detection_result['anomaly_score'],
-            'prediction_label': detection_result['prediction_label'],
-            'severity': detection_result['severity'],
-            'received_at': datetime.now().isoformat()
+            'timestamp':       data['timestamp'],
+            'device_id':       data['device_id'],
+            'prediction_label': prediction_label,
+            'anomaly_score':   anomaly_score,
+            'confidence':      round(confidence, 4),
+            'severity':        severity,
+            'received_at':     datetime.now().isoformat(),
         }
-        
-        # Store in data storage
+        for key in RAW_FEATURE_KEYS:
+            if key in data:
+                complete_data[key] = data[key]
+
         storage.add_metric(complete_data)
-        
-        # If anomaly detected, store in anomaly events
-        if detection_result['is_anomaly']:
-            anomaly_event = {
-                'timestamp': data['timestamp'],
-                'device_id': data['device_id'],
-                'anomaly_score': detection_result['anomaly_score'],
-                'severity': detection_result['severity'],
-                'throughput': metrics['throughput'],
-                'latency': metrics['latency'],
-                'packet_loss': metrics['packet_loss'],
-                'rssi': metrics['rssi'],
-                'detected_at': datetime.now().isoformat()
-            }
-            storage.add_anomaly_event(anomaly_event)
-            
-            logger.warning(f"🚨 ANOMALY DETECTED - Device: {data['device_id']}, "
-                          f"Score: {detection_result['anomaly_score']:.3f}, "
-                          f"Severity: {detection_result['severity']}")
-        
-        # Return success response with detection results
+
+        if is_anomaly:
+            storage.add_anomaly_event({**complete_data,
+                                       'detected_at': complete_data['received_at']})
+            logger.warning(f"ANOMALY — {data['device_id']} "
+                           f"score={anomaly_score:.4f} severity={severity}")
+        else:
+            logger.info(f"Normal  — {data['device_id']} "
+                        f"score={anomaly_score:.4f} conf={confidence:.2%}")
+
         return jsonify({
             'status': 'success',
-            'message': 'Metrics received and analyzed',
             'detection': detection_result
         }), 200
-    
+
     except ValueError as e:
         return jsonify({'error': f'Invalid data format: {str(e)}'}), 400
     except Exception as e:
@@ -190,12 +196,12 @@ def health_check():
     Returns system status and statistics
     """
     stats = storage.get_statistics()
-    
+
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'model_loaded': detector.model_loaded,
-        'model_type': 'trained' if detector.model_loaded else 'mock',
+        'ai_mode': 'edge_ai_24_features',
+        'ai_description': 'Decision Tree, 24 network flow features, running on Edge Server',
         'statistics': stats
     }), 200
 
@@ -232,12 +238,8 @@ if __name__ == '__main__':
     print(f"   • GET  /api/statistics   - Get statistics")
     print(f"   • POST /api/reset        - Reset all data")
     print(f"   • GET  /health           - Health check")
-    print(f"\n🤖 AI Model Status:")
-    if detector.model_loaded:
-        print(f"   ✓ Trained Decision Tree model loaded")
-        print(f"   ✓ Features: {detector.feature_names}")
-    else:
-        print(f"   ⚠ Using mock detection mode (model files not found)")
+    print(f"\n🤖 AI Mode: Edge AI — 24-feature Decision Tree (runs on Edge Server)")
+    print(f"   Dashboard displays Edge AI results only. No local AI model.")
     print(f"\n💾 Storage Configuration:")
     print(f"   • Max metrics: {config.MAX_DATA_POINTS}")
     print(f"   • Max anomaly events: {config.MAX_ANOMALY_EVENTS}")

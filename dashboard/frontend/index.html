@@ -424,7 +424,7 @@
     <!-- Header -->
     <div class="dashboard-header">
         <h1>🛡️ 5G-IoT Anomaly Detection Dashboard</h1>
-        <p>AI-Powered Real-time Network Monitoring & Threat Detection System</p>
+        <p>Edge AI Real-time Monitoring — Decision Tree (24 Network Flow Features)</p>
         <div id="systemStatus" class="status-badge normal">
             <div class="status-dot"></div>
             <span>SYSTEM NORMAL</span>
@@ -461,12 +461,12 @@
             <div class="stat-value" id="anomalyRate">0<span class="stat-unit">%</span></div>
         </div>
         <div class="stat-card highlight">
-            <div class="stat-label">⚡ Avg Throughput</div>
-            <div class="stat-value" id="avgThroughput">0<span class="stat-unit">Mbps</span></div>
+            <div class="stat-label">🎯 Avg Anomaly Score</div>
+            <div class="stat-value" id="avgAnomalyScore">0.000</div>
         </div>
         <div class="stat-card">
-            <div class="stat-label">⏱️ Avg Latency</div>
-            <div class="stat-value" id="avgLatency">0<span class="stat-unit">ms</span></div>
+            <div class="stat-label">✅ Avg Confidence</div>
+            <div class="stat-value" id="avgConfidence">0.000</div>
         </div>
         <div class="stat-card">
             <div class="stat-label">💾 Data Points</div>
@@ -477,21 +477,21 @@
     <!-- Charts Grid -->
     <div class="charts-grid">
         <div class="chart-card">
-            <h3>📊 Throughput Over Time</h3>
-            <div class="chart-wrapper">
-                <canvas id="throughputChart"></canvas>
-            </div>
-        </div>
-        <div class="chart-card">
-            <h3>⚡ Latency Over Time</h3>
-            <div class="chart-wrapper">
-                <canvas id="latencyChart"></canvas>
-            </div>
-        </div>
-        <div class="chart-card">
-            <h3>⚠️ Anomaly Score Trend</h3>
+            <h3>⚠️ Anomaly Score (P_malicious) Over Time</h3>
             <div class="chart-wrapper">
                 <canvas id="anomalyScoreChart"></canvas>
+            </div>
+        </div>
+        <div class="chart-card">
+            <h3>✅ Model Confidence Over Time</h3>
+            <div class="chart-wrapper">
+                <canvas id="confidenceChart"></canvas>
+            </div>
+        </div>
+        <div class="chart-card">
+            <h3>📦 TotBytes Over Time</h3>
+            <div class="chart-wrapper">
+                <canvas id="totBytesChart"></canvas>
             </div>
         </div>
     </div>
@@ -507,14 +507,16 @@
                         <th>Device ID</th>
                         <th>Severity</th>
                         <th>Anomaly Score</th>
-                        <th>Throughput</th>
-                        <th>Latency</th>
-                        <th>Packet Loss</th>
-                        <th>RSSI</th>
+                        <th>Confidence</th>
+                        <th>TotBytes</th>
+                        <th>TcpRtt</th>
+                        <th>sHops</th>
+                        <th>sTtl / dTtl</th>
+                        <th>Flags</th>
                     </tr>
                 </thead>
                 <tbody id="anomalyTableBody">
-                    <tr><td colspan="8" class="no-data">No anomalies detected yet</td></tr>
+                    <tr><td colspan="10" class="no-data">No anomalies detected yet</td></tr>
                 </tbody>
             </table>
         </div>
@@ -530,15 +532,17 @@
                         <th>Timestamp</th>
                         <th>Device ID</th>
                         <th>Status</th>
-                        <th>Score</th>
-                        <th>Throughput</th>
-                        <th>Latency</th>
-                        <th>Packet Loss</th>
-                        <th>RSSI</th>
+                        <th>Anomaly Score</th>
+                        <th>Confidence</th>
+                        <th>TotBytes</th>
+                        <th>TcpRtt</th>
+                        <th>sTtl / dTtl</th>
+                        <th>sHops</th>
+                        <th>Flags</th>
                     </tr>
                 </thead>
                 <tbody id="metricsTableBody">
-                    <tr><td colspan="8" class="no-data">No data received yet</td></tr>
+                    <tr><td colspan="10" class="no-data">No data received yet</td></tr>
                 </tbody>
             </table>
         </div>
@@ -547,21 +551,18 @@
     <script>
         // ========== Configuration ==========
         const API_URL = 'http://localhost:5000/api/metrics';
-        const REFRESH_INTERVAL = 2000; // 2 seconds
+        const REFRESH_INTERVAL = 2000;
         let autoRefresh = true;
         let refreshTimer = null;
 
-        // Chart instances
-        let throughputChart, latencyChart, anomalyScoreChart;
+        let anomalyScoreChart, confidenceChart, totBytesChart;
 
         // ========== Initialize Charts ==========
         function initCharts() {
             const commonOptions = {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false }
-                },
+                plugins: { legend: { display: false } },
                 scales: {
                     x: {
                         ticks: { color: '#8a92a6', maxTicksLimit: 10 },
@@ -572,19 +573,51 @@
                         grid: { color: 'rgba(42, 49, 73, 0.5)' }
                     }
                 },
-                interaction: {
-                    intersect: false,
-                    mode: 'index'
-                }
+                interaction: { intersect: false, mode: 'index' }
             };
 
-            // Throughput Chart
-            throughputChart = new Chart(document.getElementById('throughputChart'), {
+            anomalyScoreChart = new Chart(document.getElementById('anomalyScoreChart'), {
                 type: 'line',
                 data: {
                     labels: [],
                     datasets: [{
-                        label: 'Throughput (Mbps)',
+                        label: 'Anomaly Score (P_malicious)',
+                        data: [],
+                        borderColor: '#ff4757',
+                        backgroundColor: 'rgba(255, 71, 87, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: { ...commonOptions, scales: { ...commonOptions.scales,
+                    y: { ...commonOptions.scales.y, min: 0, max: 1 } } }
+            });
+
+            confidenceChart = new Chart(document.getElementById('confidenceChart'), {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Confidence',
+                        data: [],
+                        borderColor: '#00ff88',
+                        backgroundColor: 'rgba(0, 255, 136, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: { ...commonOptions, scales: { ...commonOptions.scales,
+                    y: { ...commonOptions.scales.y, min: 0, max: 1 } } }
+            });
+
+            totBytesChart = new Chart(document.getElementById('totBytesChart'), {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'TotBytes',
                         data: [],
                         borderColor: '#00d4ff',
                         backgroundColor: 'rgba(0, 212, 255, 0.1)',
@@ -595,53 +628,13 @@
                 },
                 options: commonOptions
             });
-
-            // Latency Chart
-            latencyChart = new Chart(document.getElementById('latencyChart'), {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'Latency (ms)',
-                        data: [],
-                        borderColor: '#ffa726',
-                        backgroundColor: 'rgba(255, 167, 38, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.4
-                    }]
-                },
-                options: commonOptions
-            });
-
-            // Anomaly Score Chart
-            anomalyScoreChart = new Chart(document.getElementById('anomalyScoreChart'), {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'Anomaly Score',
-                        data: [],
-                        borderColor: '#ff4757',
-                        backgroundColor: 'rgba(255, 71, 87, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.4
-                    }]
-                },
-                options: commonOptions
-            });
         }
 
-        // ========== Fetch Data from Backend ==========
+        // ========== Fetch Data ==========
         async function fetchData() {
             try {
                 const response = await fetch(API_URL);
-                
-                if (!response.ok) {
-                    throw new Error('Failed to fetch data');
-                }
-
+                if (!response.ok) throw new Error('Failed to fetch');
                 const data = await response.json();
                 updateDashboard(data);
                 updateConnectionStatus(true);
@@ -655,194 +648,153 @@
         function updateDashboard(data) {
             const { metrics, anomaly_events, statistics, counts } = data;
 
-            // Update statistics cards
-            document.getElementById('totalRequests').textContent = statistics.total_requests || 0;
-            document.getElementById('totalAnomalies').textContent = statistics.total_anomalies || 0;
-            document.getElementById('anomalyRate').innerHTML = 
+            // Stats cards
+            document.getElementById('totalRequests').textContent   = statistics.total_requests   || 0;
+            document.getElementById('totalAnomalies').textContent  = statistics.total_anomalies  || 0;
+            document.getElementById('anomalyRate').innerHTML       =
                 `${statistics.anomaly_rate || 0}<span class="stat-unit">%</span>`;
-            document.getElementById('avgThroughput').innerHTML = 
-                `${statistics.avg_throughput || 0}<span class="stat-unit">Mbps</span>`;
-            document.getElementById('avgLatency').innerHTML = 
-                `${statistics.avg_latency || 0}<span class="stat-unit">ms</span>`;
-            document.getElementById('dataCount').textContent = counts.total_metrics || 0;
+            document.getElementById('avgAnomalyScore').textContent =
+                (statistics.avg_anomaly_score || 0).toFixed(4);
+            document.getElementById('avgConfidence').textContent   =
+                (statistics.avg_confidence   || 0).toFixed(4);
+            document.getElementById('dataCount').textContent       = counts.total_metrics || 0;
 
-            // Update system status
-            const latestMetric = metrics[metrics.length - 1];
-            if (latestMetric) {
-                updateSystemStatus(latestMetric.prediction_label === 'anomaly');
-            }
+            // System status badge (based on latest record)
+            const latest = metrics[metrics.length - 1];
+            if (latest) updateSystemStatus(latest.prediction_label === 'anomaly');
 
-            // Update charts
+            // Charts
             if (metrics.length > 0) {
-                const labels = metrics.map((m, i) => {
-                    const time = new Date(m.timestamp);
-                    return time.toLocaleTimeString();
-                });
-
-                updateChart(throughputChart, labels, metrics.map(m => m.throughput));
-                updateChart(latencyChart, labels, metrics.map(m => m.latency));
+                const labels = metrics.map(m =>
+                    new Date(m.timestamp).toLocaleTimeString());
                 updateChart(anomalyScoreChart, labels, metrics.map(m => m.anomaly_score));
+                updateChart(confidenceChart,   labels, metrics.map(m => m.confidence   || 0));
+                updateChart(totBytesChart,     labels, metrics.map(m => m.tot_bytes    || 0));
             }
 
-            // Update tables
             updateAnomalyTable(anomaly_events);
             updateMetricsTable(metrics);
         }
 
-        // ========== Update Chart Data ==========
         function updateChart(chart, labels, data) {
             chart.data.labels = labels;
             chart.data.datasets[0].data = data;
             chart.update('none');
         }
 
-        // ========== Update System Status ==========
         function updateSystemStatus(isAnomaly) {
-            const statusElement = document.getElementById('systemStatus');
+            const el = document.getElementById('systemStatus');
             if (isAnomaly) {
-                statusElement.className = 'status-badge anomaly';
-                statusElement.innerHTML = '<div class="status-dot"></div><span>⚠️ ANOMALY DETECTED</span>';
+                el.className = 'status-badge anomaly';
+                el.innerHTML = '<div class="status-dot"></div><span>⚠️ ANOMALY DETECTED</span>';
             } else {
-                statusElement.className = 'status-badge normal';
-                statusElement.innerHTML = '<div class="status-dot"></div><span>✓ SYSTEM NORMAL</span>';
+                el.className = 'status-badge normal';
+                el.innerHTML = '<div class="status-dot"></div><span>✓ SYSTEM NORMAL</span>';
             }
         }
 
-        // ========== Update Connection Status ==========
         function updateConnectionStatus(isConnected) {
-            const statusElement = document.getElementById('connectionStatus');
+            const el = document.getElementById('connectionStatus');
             if (isConnected) {
-                statusElement.className = 'connection-bar connected';
-                statusElement.textContent = '✓ Connected to Backend Server';
+                el.className = 'connection-bar connected';
+                el.textContent = '✓ Connected to Backend Server';
             } else {
-                statusElement.className = 'connection-bar disconnected';
-                statusElement.textContent = '✗ Disconnected from Backend Server';
+                el.className = 'connection-bar disconnected';
+                el.textContent = '✗ Disconnected from Backend Server';
             }
+        }
+
+        // ========== Render flags column ==========
+        function flagBadges(m) {
+            const flags = [];
+            if (m.icmp     === 1) flags.push('<span style="color:#ffd93d">ICMP</span>');
+            if (m.tcp_flag === 1) flags.push('<span style="color:#00d4ff">TCP</span>');
+            if (m.rst_flag === 1) flags.push('<span style="color:#ff4757">RST</span>');
+            return flags.length ? flags.join(' ') : '<span style="color:#8a92a6">—</span>';
         }
 
         // ========== Update Anomaly Table ==========
         function updateAnomalyTable(events) {
             const tbody = document.getElementById('anomalyTableBody');
-            
             if (!events || events.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" class="no-data">No anomalies detected yet</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" class="no-data">No anomalies detected yet</td></tr>';
                 return;
             }
-
-            const reversedEvents = [...events].reverse();
-            
-            tbody.innerHTML = reversedEvents.map(event => {
-                const time = new Date(event.timestamp).toLocaleString();
-                const severityClass = `severity-${event.severity || 'low'}`;
-                
+            tbody.innerHTML = [...events].reverse().map(e => {
+                const sevCls = `severity-${e.severity || 'low'}`;
                 return `
-                    <tr class="anomaly-row">
-                        <td>${time}</td>
-                        <td>${event.device_id}</td>
-                        <td><span class="severity-badge ${severityClass}">${event.severity || 'low'}</span></td>
-                        <td>${event.anomaly_score.toFixed(3)}</td>
-                        <td>${event.throughput.toFixed(2)} Mbps</td>
-                        <td>${event.latency.toFixed(2)} ms</td>
-                        <td>${event.packet_loss.toFixed(2)}%</td>
-                        <td>${event.rssi.toFixed(0)} dBm</td>
-                    </tr>
-                `;
+                <tr class="anomaly-row">
+                    <td>${new Date(e.timestamp).toLocaleString()}</td>
+                    <td>${e.device_id}</td>
+                    <td><span class="severity-badge ${sevCls}">${e.severity || 'low'}</span></td>
+                    <td>${(e.anomaly_score  ?? 0).toFixed(4)}</td>
+                    <td>${(e.confidence     ?? 0).toFixed(4)}</td>
+                    <td>${e.tot_bytes       ?? '—'}</td>
+                    <td>${e.tcp_rtt        ?? '—'}</td>
+                    <td>${e.s_hops         ?? '—'}</td>
+                    <td>${e.s_ttl ?? '—'} / ${e.d_ttl ?? '—'}</td>
+                    <td>${flagBadges(e)}</td>
+                </tr>`;
             }).join('');
         }
 
         // ========== Update Metrics Table ==========
         function updateMetricsTable(metrics) {
             const tbody = document.getElementById('metricsTableBody');
-            
             if (!metrics || metrics.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" class="no-data">No data received yet</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" class="no-data">No data received yet</td></tr>';
                 return;
             }
-
-            const recent = metrics.slice(-20).reverse();
-            
-            tbody.innerHTML = recent.map(metric => {
-                const time = new Date(metric.timestamp).toLocaleString();
-                const isAnomaly = metric.prediction_label === 'anomaly';
-                const rowClass = isAnomaly ? 'anomaly-row' : '';
-                const status = isAnomaly ? '🔴 Anomaly' : '🟢 Normal';
-                
+            tbody.innerHTML = metrics.slice(-20).reverse().map(m => {
+                const isAnomaly = m.prediction_label === 'anomaly';
                 return `
-                    <tr class="${rowClass}">
-                        <td>${time}</td>
-                        <td>${metric.device_id}</td>
-                        <td>${status}</td>
-                        <td>${metric.anomaly_score.toFixed(3)}</td>
-                        <td>${metric.throughput.toFixed(2)} Mbps</td>
-                        <td>${metric.latency.toFixed(2)} ms</td>
-                        <td>${metric.packet_loss.toFixed(2)}%</td>
-                        <td>${metric.rssi.toFixed(0)} dBm</td>
-                    </tr>
-                `;
+                <tr class="${isAnomaly ? 'anomaly-row' : ''}">
+                    <td>${new Date(m.timestamp).toLocaleString()}</td>
+                    <td>${m.device_id}</td>
+                    <td>${isAnomaly ? '🔴 Anomaly' : '🟢 Normal'}</td>
+                    <td>${(m.anomaly_score ?? 0).toFixed(4)}</td>
+                    <td>${(m.confidence   ?? 0).toFixed(4)}</td>
+                    <td>${m.tot_bytes     ?? '—'}</td>
+                    <td>${m.tcp_rtt      ?? '—'}</td>
+                    <td>${m.s_ttl ?? '—'} / ${m.d_ttl ?? '—'}</td>
+                    <td>${m.s_hops       ?? '—'}</td>
+                    <td>${flagBadges(m)}</td>
+                </tr>`;
             }).join('');
         }
 
-        // ========== Toggle Auto-Refresh ==========
+        // ========== Controls ==========
         function toggleAutoRefresh() {
             autoRefresh = !autoRefresh;
-            const btn = document.getElementById('autoRefreshBtn');
-            
-            if (autoRefresh) {
-                btn.textContent = '⏸️ Pause Auto-Refresh';
-                startAutoRefresh();
-            } else {
-                btn.textContent = '▶️ Resume Auto-Refresh';
-                stopAutoRefresh();
-            }
+            document.getElementById('autoRefreshBtn').textContent =
+                autoRefresh ? '⏸️ Pause Auto-Refresh' : '▶️ Resume Auto-Refresh';
+            autoRefresh ? startAutoRefresh() : stopAutoRefresh();
         }
 
-        // ========== Auto-Refresh Control ==========
         function startAutoRefresh() {
             if (refreshTimer) clearInterval(refreshTimer);
             refreshTimer = setInterval(fetchData, REFRESH_INTERVAL);
         }
 
         function stopAutoRefresh() {
-            if (refreshTimer) {
-                clearInterval(refreshTimer);
-                refreshTimer = null;
-            }
+            if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
         }
 
-        // ========== Reset Data ==========
         async function resetData() {
-            if (!confirm('Bạn có chắc muốn reset tất cả dữ liệu không?')) {
-                return;
-            }
-
+            if (!confirm('Bạn có chắc muốn reset tất cả dữ liệu không?')) return;
             try {
-                const response = await fetch('http://localhost:5000/api/reset', {
-                    method: 'POST'
-                });
-
-                if (response.ok) {
-                    alert('✓ Dữ liệu đã được reset thành công');
-                    fetchData();
-                } else {
-                    alert('✗ Lỗi khi reset dữ liệu');
-                }
-            } catch (error) {
-                console.error('Error resetting data:', error);
-                alert('✗ Lỗi kết nối khi reset dữ liệu');
-            }
+                const r = await fetch('http://localhost:5000/api/reset', { method: 'POST' });
+                alert(r.ok ? '✓ Dữ liệu đã được reset thành công' : '✗ Lỗi khi reset dữ liệu');
+                fetchData();
+            } catch { alert('✗ Lỗi kết nối khi reset dữ liệu'); }
         }
 
-        // ========== Initialize Dashboard ==========
-        function init() {
-            console.log('🚀 Initializing 5G-IoT Anomaly Detection Dashboard...');
+        // ========== Init ==========
+        window.addEventListener('load', () => {
             initCharts();
             fetchData();
             startAutoRefresh();
-            console.log('✓ Dashboard initialized successfully');
-        }
-
-        // Start when page loads
-        window.addEventListener('load', init);
+        });
     </script>
 </body>
 </html>

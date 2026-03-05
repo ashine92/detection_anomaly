@@ -31,62 +31,103 @@ class IoTSensorStation:
         anomaly=True để tạo dữ liệu bất thường
         """
         if anomaly:
-            # ATTACK TRAFFIC - DDoS/Flooding patterns
-            # Đặc điểm: High throughput, nhiều packets, high rate, abnormal flags
-            features = [
-                random.randint(50000, 100000),    # [0] Seq - rất cao (flood)
-                random.uniform(2000, 5000),       # [1] Mean - cao bất thường
-                random.choice([0, 8, 16]),        # [2] sTos - abnormal priority
-                random.randint(30, 50),           # [3] sTtl - TTL thấp (spoofed)
-                random.randint(30, 50),           # [4] dTtl - TTL thấp
-                random.randint(15, 30),           # [5] sHops - nhiều hops
-                random.randint(500000, 2000000),  # [6] TotBytes - RẤT LỚN
-                random.randint(250000, 1000000),  # [7] SrcBytes - rất lớn
-                random.randint(0, 100),           # [8] Offset
-                random.randint(1200, 1500),       # [9] sMeanPktSz - max packet size
-                random.randint(1200, 1500),       # [10] dMeanPktSz
-                random.randint(50000, 65535),     # [11] SrcWin - maximum window
-                random.uniform(150, 500),         # [12] TcpRtt - latency cao
-                random.randint(100000, 500000),   # [13] AckDat - lớn
-                0,                                # [14] ' e        ' - flag
-                1,                                # [15] ' e d      ' - flag set
-                0,                                # [16] icmp - not ICMP
-                1,                                # [17] tcp - TCP protocol
-                1,                                # [18] CON - connection flag
-                0,                                # [19] FIN - no FIN (incomplete)
-                1,                                # [20] INT - interrupt flag
-                1,                                # [21] REQ - request flag
-                1,                                # [22] RST - RESET flag (attack!)
-                1                                 # [23] Status - active
-            ]
+            # Chọn ngẫu nhiên một trong 2 kiểu tấn công thực tế từ dataset
+            attack_type = random.choice(['icmp_scan', 'tcp_rst_scan'])
+
+            if attack_type == 'icmp_scan':
+                # ICMP Scanning Attack — calibrated to real dataset malicious rows
+                # Verified samples: Seq=35-39, Mean=0.002-1.88, sTtl=45-49, dTtl=0,
+                # sHops=15-19, TotBytes=84-108, Offset=4600-4992, sMeanPktSz=42-54, icmp=1
+                pkt = random.choice([42, 54])
+                features = [
+                    float(random.randint(30, 50)),    # [0] Seq - thấp (35-39 trong dataset)
+                    random.uniform(0.001, 2.0),      # [1] Mean - rất thấp (≤2.0)
+                    0.0,                              # [2] sTos - 0
+                    float(random.randint(44, 52)),    # [3] sTtl - 45-49 (spoofed)
+                    0.0,                              # [4] dTtl - 0 (không có reply — đặc trưng chính!)
+                    float(random.randint(13, 20)),    # [5] sHops - 15-19
+                    float(pkt * 2),                  # [6] TotBytes - nhỏ (84-108)
+                    float(pkt * 2),                  # [7] SrcBytes = TotBytes (1 chiều)
+                    float(random.randint(4500, 5200)),# [8] Offset - cao (4600-4992)
+                    float(pkt),                      # [9] sMeanPktSz - 42-54
+                    0.0,                              # [10] dMeanPktSz - 0 (no dest reply)
+                    0.0,                              # [11] SrcWin - 0
+                    0.0,                              # [12] TcpRtt - 0
+                    0.0,                              # [13] AckDat - 0
+                    1,                                # [14] ' e        ' - set
+                    0,                                # [15] ' e d      '
+                    1,                                # [16] icmp - ICMP!
+                    0,                                # [17] tcp
+                    0,                                # [18] CON
+                    0,                                # [19] FIN
+                    0,                                # [20] INT
+                    0,                                # [21] REQ
+                    0,                                # [22] RST
+                    0                                 # [23] Status
+                ]
+            else:
+                # TCP RST Scan Attack — calibrated to real dataset malicious rows
+                # Verified: Seq=40, Mean=0.002, sTtl=50, dTtl=59, sHops=14,
+                # TotBytes=112, SrcBytes=58, Offset=5084, SrcWin=1024, tcp=1, RST=1
+                src_pkt = random.choice([54, 58])
+                dst_pkt = random.choice([54, 58])
+                features = [
+                    float(random.randint(35, 50)),    # [0] Seq - 35-40
+                    random.uniform(0.001, 0.004),     # [1] Mean - cực thấp (~0.002)
+                    0.0,                              # [2] sTos
+                    float(random.randint(47, 53)),    # [3] sTtl - ~50
+                    float(random.randint(59, 61)),    # [4] dTtl - ~59 (đặc trưng)
+                    float(random.randint(12, 17)),    # [5] sHops - ~14
+                    float(src_pkt + dst_pkt + 2),     # [6] TotBytes - nhỏ (~112)
+                    float(src_pkt),                   # [7] SrcBytes - ~58
+                    float(random.randint(4900, 5200)),# [8] Offset - ~5084
+                    float(src_pkt),                   # [9] sMeanPktSz - ~58
+                    float(dst_pkt),                   # [10] dMeanPktSz - ~54
+                    1024.0,                           # [11] SrcWin - 1024 (đặc trưng TCP RST scan)
+                    0.0,                              # [12] TcpRtt - ~0
+                    0.0,                              # [13] AckDat - ~0
+                    1,                                # [14] ' e        ' - set
+                    0,                                # [15] ' e d      '
+                    0,                                # [16] icmp
+                    1,                                # [17] tcp - TCP!
+                    0,                                # [18] CON
+                    0,                                # [19] FIN
+                    0,                                # [20] INT
+                    0,                                # [21] REQ
+                    1,                                # [22] RST - RESET!
+                    0                                 # [23] Status
+                ]
         else:
-            # NORMAL TRAFFIC - Realistic IoT sensor communication
-            # Đặc điểm: Low/moderate traffic, normal TTL, complete connections
+            # NORMAL TRAFFIC — calibrated to real dataset benign rows
+            # Key benign traits: Mean≤5, TcpRtt≈0, AckDat≈0, high sTtl (≥60),
+            # Offset varies widely, SrcWin often 0
+            tot = random.randint(500, 6000)
+            src = random.randint(tot // 2, tot)
             features = [
-                random.randint(1, 10000),         # [0] Seq - bình thường
-                random.uniform(100, 800),         # [1] Mean - moderate
-                0,                                # [2] sTos - normal priority
-                random.randint(60, 128),          # [3] sTtl - normal TTL
-                random.randint(60, 128),          # [4] dTtl - normal TTL
-                random.randint(1, 8),             # [5] sHops - ít hops
-                random.randint(1000, 50000),      # [6] TotBytes - moderate
-                random.randint(500, 25000),       # [7] SrcBytes - moderate
-                random.randint(0, 100),           # [8] Offset
-                random.randint(200, 800),         # [9] sMeanPktSz - normal size
-                random.randint(200, 800),         # [10] dMeanPktSz
-                random.randint(5000, 32000),      # [11] SrcWin - normal window
-                random.uniform(5, 80),            # [12] TcpRtt - latency thấp
-                random.randint(1000, 10000),      # [13] AckDat - moderate
-                1,                                # [14] ' e        ' - flag
-                0,                                # [15] ' e d      ' - flag
-                0,                                # [16] icmp - not ICMP
-                1,                                # [17] tcp - TCP protocol
-                1,                                # [18] CON - connection established
-                1,                                # [19] FIN - clean close
-                0,                                # [20] INT - no interrupt
-                1,                                # [21] REQ - normal request
-                0,                                # [22] RST - no reset (normal)
-                1                                 # [23] Status - active
+                float(random.randint(1, 100000)),      # [0] Seq - bình thường
+                random.uniform(0.0, 3.0),              # [1] Mean - thấp (≤3 p95 benign)
+                0.0,                                   # [2] sTos - 0 (mostly)
+                float(random.randint(55, 250)),        # [3] sTtl - cao (bình thường ≥60)
+                float(random.choice([0, 64])),         # [4] dTtl - 0 hoặc 64
+                float(random.randint(1, 8)),           # [5] sHops - ít hops
+                float(tot),                            # [6] TotBytes
+                float(src),                            # [7] SrcBytes
+                float(random.randint(128, 1000000)),   # [8] Offset - rộng (benign lớn)
+                float(random.randint(40, 200)),        # [9] sMeanPktSz - p95=245
+                float(random.randint(0, 100)),         # [10] dMeanPktSz
+                0.0,                                   # [11] SrcWin - p95=0 trong benign
+                0.0,                                   # [12] TcpRtt - ~0 (p95=0)
+                0.0,                                   # [13] AckDat - ~0 (p95=0)
+                1,                                     # [14] ' e        ' - set (72% benign)
+                0,                                     # [15] ' e d      '
+                0,                                     # [16] icmp
+                0,                                     # [17] tcp
+                0,                                     # [18] CON
+                0,                                     # [19] FIN
+                random.choice([0, 1]),                 # [20] INT
+                random.choice([0, 1]),                 # [21] REQ
+                0,                                     # [22] RST - hiếm trong benign
+                random.choice([0, 1])                  # [23] Status
             ]
         
         return features
@@ -114,7 +155,7 @@ class IoTSensorStation:
             # Nhận kết quả
             response = sock.recv(4096).decode()
             result = json.loads(response)
-            print(f"Received from edge: {result}")
+            # print(f"\nReceived from edge: {result}")
             sock.close()
             
             return result
@@ -122,7 +163,7 @@ class IoTSensorStation:
         except Exception as e:
             return {'error': str(e)}
     
-    def run(self, interval=2, anomaly_rate=0.8):
+    def run(self, interval=2, anomaly_rate=0.2):
         """
         Chạy station - liên tục gửi dữ liệu
         interval: giây giữa mỗi lần gửi
@@ -187,7 +228,7 @@ if __name__ == '__main__':
     
     device_id = sys.argv[1]
     interval = float(sys.argv[2]) if len(sys.argv) > 2 else 2.0
-    anomaly_rate = float(sys.argv[3]) if len(sys.argv) > 3 else 0.8
+    anomaly_rate = float(sys.argv[3]) if len(sys.argv) > 3 else 0.2
     edge_ip = sys.argv[4] if len(sys.argv) > 4 else 'localhost'
     edge_port = int(sys.argv[5]) if len(sys.argv) > 5 else 5001
     

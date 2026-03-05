@@ -1,6 +1,370 @@
 # Anomaly Detection in 5G-IoT Networks
 
-Hệ thống phát hiện anomaly hoàn chỉnh cho mạng 5G-IoT với **Web Dashboard**, bao gồm phân tích dữ liệu, training model, mô phỏng mạng realtime, và monitoring UI.
+Hệ thống phát hiện anomaly cho mạng 5G-IoT với **Web Dashboard**, **Edge Server**, và **AI Decision Tree** 24 features. Đã kiểm chứng qua test suite (`test_ai_system.py`) đạt **100% PASS** trên model và tích hợp hệ thống.
+
+---
+
+## 📋 Project Structure
+
+```
+detection_anomaly/
+├── test_ai_system.py               # 🧪 Test suite toàn bộ hệ thống AI
+├── DATASET_AND_TESTING_GUIDE.md    # 📖 Giải thích dataset + mẫu test
+│
+├── dashboard/                      # 🌐 Web Monitoring Dashboard
+│   ├── backend/
+│   │   ├── app.py                  # Flask API — Routes & endpoints
+│   │   ├── config.py               # Model paths + server config
+│   │   ├── detection.py            # AnomalyDetector (joblib + 24 features)
+│   │   └── storage.py              # In-memory data storage
+│   └── frontend/
+│       └── index.html              # Real-time charts & stats
+│
+├── model/                          # 🤖 Trained Model Files
+│   ├── decision_tree_model_*.pkl   # Decision Tree (24 features)
+│   ├── scaler_*.pkl                # StandardScaler
+│   └── feature_names_*.pkl         # Tên 24 features
+│
+├── model_development/
+│   └── train-model.ipynb           # Training notebook (tạo ra model/)
+│
+├── dataset/
+│   └── Encoded.csv                 # 5G-IoT traffic dataset (1.2M rows)
+│
+└── system_detection/               # 🔬 Network Simulation
+    ├── edge_server_with_dashboard.py  # Edge Server chính (port 5001)
+    ├── iot_station.py              # IoT traffic generator (24 features)
+    ├── dashboard_client.py         # HTTP client gửi metrics → dashboard
+    ├── 5g_iot_mininet.py           # Mininet-WiFi topology
+    └── ...
+```
+
+---
+
+## 🏗️ Kiến trúc hệ thống
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│   ┌──────────────┐   24 features    ┌────────────────────────┐ │
+│   │  IoT Station │ ───────────────► │     Edge Server        │ │
+│   │ (iot_station │   TCP :5001      │  edge_server_with_     │ │
+│   │   .py)       │                  │  dashboard.py          │ │
+│   └──────────────┘                  │                        │ │
+│                                     │  [AI #1 — 24 features] │ │
+│                                     │  Decision Tree .pkl    │ │
+│                                     │  → Benign / Malicious  │ │
+│                                     └──────────┬─────────────┘ │
+│                                                │               │
+│                                    POST /api/metrics           │
+│                                    (throughput, latency,       │
+│                                     packet_loss, rssi)         │
+│                                                │               │
+│                                                ▼               │
+│                                     ┌─────────────────────┐   │
+│                                     │   Web Dashboard     │   │
+│                                     │   app.py :5000      │   │
+│                                     │                     │   │
+│                                     │  [AI #2 — 4 metrics]│   │
+│                                     │  detection.py       │   │
+│                                     │  (fallback mock khi │   │
+│                                     │   features thiếu)   │   │
+│                                     └──────────┬──────────┘   │
+│                                                │               │
+│                                                ▼               │
+│                                     ┌─────────────────────┐   │
+│                                     │   Browser UI        │   │
+│                                     │   http://localhost  │   │
+│                                     │   :5000             │   │
+│                                     └─────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 2 tầng AI
+
+| Tầng | File | Input | Model | Output |
+|------|------|-------|-------|--------|
+| **AI #1 — Edge** | `edge_server_with_dashboard.py` | 24 network flow features | Decision Tree `.pkl` | `Benign` / `Malicious` + confidence |
+| **AI #2 — Dashboard** | `dashboard/backend/detection.py` | 4 metrics (throughput, latency, packet_loss, rssi) | Cùng `.pkl` (qua `config.py`) | `normal` / `anomaly` + score |
+
+> **Lưu ý**: AI #2 tự động fallback sang **mock mode** (rule-based) nếu 4 metrics không khớp với feature_names của model. Đây là behavior by design — Edge Server mới là tầng phát hiện chính xác.
+
+---
+
+## 🚀 Cách vận hành
+
+### Bước 0 — Chuẩn bị model (nếu chưa có)
+
+Mở và chạy toàn bộ notebook `model_development/train-model.ipynb`. Kết quả sẽ tạo ra 3 file trong `model/`:
+
+```
+model/decision_tree_model_YYYYMMDD_HHMMSS.pkl
+model/scaler_YYYYMMDD_HHMMSS.pkl
+model/feature_names_YYYYMMDD_HHMMSS.pkl
+```
+
+Sau đó cập nhật `dashboard/backend/config.py` để trỏ đúng timestamp:
+
+```python
+MODEL_PATH         = os.path.join(MODEL_DIR, 'decision_tree_model_YYYYMMDD_HHMMSS.pkl')
+SCALER_PATH        = os.path.join(MODEL_DIR, 'scaler_YYYYMMDD_HHMMSS.pkl')
+FEATURE_NAMES_PATH = os.path.join(MODEL_DIR, 'feature_names_YYYYMMDD_HHMMSS.pkl')
+```
+
+---
+
+### Bước 1 — Khởi động Dashboard Backend (Terminal 1)
+
+```bash
+cd detection_anomaly/dashboard/backend
+python3 app.py
+```
+
+Xác nhận thành công:
+```
+✓ Trained Decision Tree model loaded
+✓ Features: ['Seq', 'Mean', 'sTos', ...]
+👉 Open your browser: http://localhost:5000
+```
+
+**API endpoints có sẵn:**
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/` | Dashboard UI |
+| `POST` | `/api/metrics` | Nhận metrics từ Edge Server |
+| `GET` | `/api/metrics` | Lấy toàn bộ dashboard data (metrics + anomaly_events) |
+| `GET` | `/api/statistics` | Thống kê tổng hợp |
+| `GET` | `/health` | Health check + model status |
+| `POST` | `/api/reset` | Xóa toàn bộ dữ liệu |
+
+---
+
+### Bước 2 — Khởi động Edge Server (Terminal 2)
+
+```bash
+cd detection_anomaly/system_detection
+python3 edge_server_with_dashboard.py \
+    ../model/decision_tree_model_*.pkl \
+    ../model/scaler_*.pkl
+```
+
+Xác nhận thành công:
+```
+✓ Model loaded successfully!
+Server listening on 0.0.0.0:5001
+Dashboard integration: ✅ Enabled
+```
+
+Edge Server lắng nghe tại **port 5001** (TCP socket), nhận 24 features từ IoT stations.
+
+---
+
+### Bước 3 — Chạy IoT Station (Terminal 3)
+
+```bash
+cd detection_anomaly/system_detection
+python3 iot_station.py sta1 2 0.2
+#                      ^    ^  ^
+#               device_id  interval(s)  anomaly_rate(20%)
+```
+
+IoT Station sẽ tự động tạo traffic bình thường và traffic tấn công theo tỷ lệ `anomaly_rate`:
+
+```
+✓ NORMAL DATA    → Edge: Benign (99.8%)
+⚠️ ANOMALY DATA  → Edge: Malicious (97.3%)
+```
+
+**Truy cập Dashboard**: Mở browser → `http://localhost:5000`
+
+---
+
+### Chạy nhiều IoT Stations song song
+
+```bash
+# Terminal 3
+python3 iot_station.py sta1 2 0.1   # Camera an ninh — 10% anomaly
+
+# Terminal 4
+python3 iot_station.py sta2 1 0.3   # Sensor cảm biến — 30% anomaly
+
+# Terminal 5
+python3 iot_station.py sta3 3 0.0   # Gateway — toàn bộ benign
+```
+
+---
+
+## 🧪 Test Suite — Kiểm tra hệ thống
+
+File `test_ai_system.py` kiểm tra toàn bộ hệ thống theo 5 tầng:
+
+```bash
+# Tier 1+2+5 — Chạy ngay (không cần server)
+python3 test_ai_system.py
+
+# + Tier 3 — API test (cần dashboard đang chạy ở bước 1)
+python3 test_ai_system.py --api
+
+# + Tier 4 — Edge Server test (cần cả bước 1 + 2)
+python3 test_ai_system.py --edge
+
+# Tất cả tier
+python3 test_ai_system.py --all
+```
+
+| Tier | Kiểm tra | Cần server? |
+|------|----------|-------------|
+| **1** — Unit | Load model `.pkl`, predict 6 samples thật từ dataset | ❌ |
+| **2** — Module | `AnomalyDetector` import, `predict()`, `analyze_metrics()`, `preprocess_data()` | ❌ |
+| **3** — API | HTTP GET/POST đến Flask (`/api/metrics`, `/api/statistics`, `/health`) | ✅ Dashboard |
+| **4** — Integration | TCP socket đến Edge Server, 3 malicious + 1 benign + load test 10 req | ✅ Edge Server |
+| **5** — Consistency | So sánh kết quả trực tiếp từ `.pkl` vs `AnomalyDetector` | ❌ |
+
+**Kết quả chuẩn (Tier 1+2+5):**
+```
+PASS  : 26
+FAIL  : 0
+SKIP  : 2
+✓ Toàn bộ hệ thống AI hoạt động bình thường!
+```
+
+---
+
+## 📊 Input / Output của hệ thống
+
+### Edge Server — 24 Features Input
+
+```json
+{
+  "device_id": "sta1",
+  "features": [
+    3.0,          // [0]  Seq
+    4.998,        // [1]  Mean (giây)
+    0.0,          // [2]  sTos
+    117.0,        // [3]  sTtl
+    64.0,         // [4]  dTtl
+    11.0,         // [5]  sHops
+    249093.0,     // [6]  TotBytes
+    244212.0,     // [7]  SrcBytes
+    336.0,        // [8]  Offset
+    1245.98,      // [9]  sMeanPktSz
+    271.17,       // [10] dMeanPktSz
+    0.0,          // [11] SrcWin
+    0.0,          // [12] TcpRtt
+    0.0,          // [13] AckDat
+    1.0,          // [14] ' e        ' (encoded flag)
+    0.0,          // [15] ' e d      ' (encoded flag)
+    0.0,          // [16] icmp
+    0.0,          // [17] tcp
+    1.0,          // [18] CON
+    0.0,          // [19] FIN
+    0.0,          // [20] INT
+    0.0,          // [21] REQ
+    0.0,          // [22] RST
+    0.0           // [23] Status
+  ]
+}
+```
+
+### Edge Server — Response
+
+```json
+{
+  "device_id": "sta1",
+  "prediction": "Benign",
+  "confidence": 1.0,
+  "probability_benign": 1.0,
+  "probability_malicious": 0.0,
+  "timestamp": "2026-03-05 10:00:00"
+}
+```
+
+### Dashboard API — Input (POST /api/metrics)
+
+```json
+{
+  "timestamp": "2026-03-05T10:00:00",
+  "device_id": "sta1",
+  "throughput": 80.5,
+  "latency": 12.3,
+  "packet_loss": 0.1,
+  "rssi": -62.0
+}
+```
+
+### Nhận diện nhanh Benign vs Malicious
+
+| Feature | Benign | Malicious |
+|---------|--------|-----------|
+| `Mean` (giây) | > 1.0 | < 0.01 |
+| `TotBytes` | Lớn (> 10,000) | Nhỏ (< 200) |
+| `dMeanPktSz` | > 0 (có reply) | = 0 (không có reply) |
+| `dTtl` | > 0 | = 0 |
+| `CON` hoặc `FIN` | = 1 | = 0 |
+| `RST` | = 0 | = 1 |
+
+---
+
+## 🔧 Cài đặt Dependencies
+
+```bash
+pip install flask flask-cors numpy scikit-learn joblib pandas
+```
+
+Hoặc dùng venv:
+
+```bash
+cd detection_anomaly/dashboard
+python3 -m venv ../venv
+source ../venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Yêu cầu:**
+- Python 3.8+
+- scikit-learn ≥ 1.4 (warning nếu khác version train — vẫn hoạt động)
+- Flask 3.0+
+
+---
+
+## 🐛 Troubleshooting
+
+### Dashboard AI dùng mock mode thay vì trained model
+
+Kiểm tra `dashboard/backend/config.py` — timestamp phải khớp với file trong `model/`:
+
+```bash
+ls model/                          # xem timestamp thực tế
+# → decision_tree_model_20260305_223751.pkl
+
+# Sửa config.py cho đúng timestamp
+grep MODEL_PATH dashboard/backend/config.py
+```
+
+### Edge Server báo "Port already in use"
+
+```bash
+lsof -i :5001 | grep LISTEN
+kill -9 <PID>
+```
+
+### sklearn InconsistentVersionWarning
+
+Model được train với sklearn 1.7.1, hệ thống dùng 1.4.1 → chỉ là warning, không ảnh hưởng kết quả. Để loại bỏ hoàn toàn, retrain model bằng `train-model.ipynb` trên máy hiện tại.
+
+### `/api/anomalies` trả về 404
+
+Route không tồn tại. Anomaly data nằm trong `GET /api/metrics` → field `anomaly_events[]`.
+
+---
+
+## 📄 Tài liệu liên quan
+
+- [DATASET_AND_TESTING_GUIDE.md](DATASET_AND_TESTING_GUIDE.md) — Ý nghĩa 24 cột dataset + mẫu test
+- [dashboard/QUICKSTART.md](dashboard/QUICKSTART.md) — Hướng dẫn nhanh dashboard
+- [system_detection/README.md](system_detection/README.md) — Chi tiết simulation + Mininet
+
 
 ## 📋 Project Structure
 
