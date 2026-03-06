@@ -513,10 +513,13 @@
                         <th>sHops</th>
                         <th>sTtl / dTtl</th>
                         <th>Flags</th>
+                        <th>Node</th>
+                        <th>Signal (dBm)</th>
+                        <th>Bitrate (Mbps)</th>
                     </tr>
                 </thead>
                 <tbody id="anomalyTableBody">
-                    <tr><td colspan="10" class="no-data">No anomalies detected yet</td></tr>
+                    <tr><td colspan="13" class="no-data">No anomalies detected yet</td></tr>
                 </tbody>
             </table>
         </div>
@@ -539,10 +542,13 @@
                         <th>sTtl / dTtl</th>
                         <th>sHops</th>
                         <th>Flags</th>
+                        <th>Node</th>
+                        <th>Signal (dBm)</th>
+                        <th>Bitrate (Mbps)</th>
                     </tr>
                 </thead>
                 <tbody id="metricsTableBody">
-                    <tr><td colspan="10" class="no-data">No data received yet</td></tr>
+                    <tr><td colspan="13" class="no-data">No data received yet</td></tr>
                 </tbody>
             </table>
         </div>
@@ -717,11 +723,14 @@
         function updateAnomalyTable(events) {
             const tbody = document.getElementById('anomalyTableBody');
             if (!events || events.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" class="no-data">No anomalies detected yet</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="13" class="no-data">No anomalies detected yet</td></tr>';
                 return;
             }
             tbody.innerHTML = [...events].reverse().map(e => {
                 const sevCls = `severity-${e.severity || 'low'}`;
+                const mnNode  = e.mininet_node ?? e.station_node ?? '—';
+                const mnSig   = e.signal_dbm          != null ? e.signal_dbm          : '—';
+                const mnBr    = e.link_bitrate_mbps   != null ? e.link_bitrate_mbps   : '—';
                 return `
                 <tr class="anomaly-row">
                     <td>${new Date(e.timestamp).toLocaleString()}</td>
@@ -734,6 +743,9 @@
                     <td>${e.s_hops         ?? '—'}</td>
                     <td>${e.s_ttl ?? '—'} / ${e.d_ttl ?? '—'}</td>
                     <td>${flagBadges(e)}</td>
+                    <td>${mnNode}</td>
+                    <td>${mnSig}</td>
+                    <td>${mnBr}</td>
                 </tr>`;
             }).join('');
         }
@@ -742,11 +754,14 @@
         function updateMetricsTable(metrics) {
             const tbody = document.getElementById('metricsTableBody');
             if (!metrics || metrics.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" class="no-data">No data received yet</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="13" class="no-data">No data received yet</td></tr>';
                 return;
             }
             tbody.innerHTML = metrics.slice(-20).reverse().map(m => {
                 const isAnomaly = m.prediction_label === 'anomaly';
+                const mnNode  = m.mininet_node ?? m.station_node ?? '—';
+                const mnSig   = m.signal_dbm          != null ? m.signal_dbm          : '—';
+                const mnBr    = m.link_bitrate_mbps   != null ? m.link_bitrate_mbps   : '—';
                 return `
                 <tr class="${isAnomaly ? 'anomaly-row' : ''}">
                     <td>${new Date(m.timestamp).toLocaleString()}</td>
@@ -759,6 +774,9 @@
                     <td>${m.s_ttl ?? '—'} / ${m.d_ttl ?? '—'}</td>
                     <td>${m.s_hops       ?? '—'}</td>
                     <td>${flagBadges(m)}</td>
+                    <td>${mnNode}</td>
+                    <td>${mnSig}</td>
+                    <td>${mnBr}</td>
                 </tr>`;
             }).join('');
         }

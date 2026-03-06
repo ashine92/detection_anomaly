@@ -12,6 +12,7 @@ import sys
 import os
 import time
 import glob
+import subprocess
 
 # Import Mininet-WiFi components
 try:
@@ -95,6 +96,19 @@ def create5GIoTTopology():
     c0.start()
     s1.start([c0])
     ap1.start([c0])
+
+    # Gán IP cho OVS bridge s1 trong root namespace
+    # → host machine (Flask đang bind 0.0.0.0:5000) sẽ có IP 10.0.0.254
+    #   reachable từ mọi Mininet node trong 10.0.0.0/24
+    info("*** Assigning host management IP 10.0.0.254 to bridge s1\n")
+    subprocess.call(['ip', 'addr', 'add', '10.0.0.254/24', 'dev', 's1'],
+                    stderr=subprocess.DEVNULL)  # bỏ qua nếu đã set
+    subprocess.call(['ip', 'link', 'set', 's1', 'up'], stderr=subprocess.DEVNULL)
+    # Thêm OpenFlow rule cho phép tất cả traffic qua s1
+    # (mặc định OVS drop mọi packet khi không có flow rule)
+    subprocess.call(['ovs-ofctl', 'add-flow', 's1', 'priority=1,actions=normal'],
+                    stderr=subprocess.DEVNULL)
+    info("*** OVS flow rule added (actions=normal)\n")
     
     info("*** Configuring Routes\n")
     # IoT stations need a default route to reach the edge server via ap1
@@ -133,8 +147,9 @@ def startEdgeServer(edge_server, model_dir, simu_dir,
     info(f"  Model:  {os.path.basename(model_file)}\n")
     info(f"  Scaler: {os.path.basename(scaler_file)}\n")
 
-    edge_server.cmd(f'cd {simu_dir}')
     cmd = (
+        f"cd {simu_dir} && "
+        f"MININET_NODE=edge1 MININET_AP_SSID=5G-IoT-Network "
         f"python3 -u edge_server_with_dashboard.py "
         f"{model_file} {scaler_file} {dashboard_url} "
         f"> /tmp/edge_server.log 2>&1 &"
@@ -149,8 +164,9 @@ def startIoTStation(station, device_id, interval, anomaly_rate, edge_ip,
                     simu_dir, edge_port=5001):
     """Khởi động IoT Station bên trong Mininet node — truyền IP edge server"""
     info(f"\n*** Starting IoT Station {device_id} -> Edge {edge_ip}:{edge_port}\n")
-    station.cmd(f'cd {simu_dir}')
     cmd = (
+        f"cd {simu_dir} && "
+        f"MININET_NODE={device_id} MININET_AP_SSID=5G-IoT-Network "
         f"python3 iot_station.py {device_id} {interval} {anomaly_rate} "
         f"{edge_ip} {edge_port} "
         f"> /tmp/{device_id}.log 2>&1 &"
@@ -176,6 +192,23 @@ def testConnectivity(net, edge_server, sta1, sta2):
     
     info("\n*** Connectivity Test Completed\n")
 
+def getHostIP():
+    """
+    Lấy IP thực của host machine (không phải 127.0.0.1).
+    Mininet nodes không thể gửi đến localhost — phải dùng IP thật của host.
+    """
+    import socket as _socket
+    try:
+        # Mở UDP socket giả để lấy interface IP ra ngoài
+        s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return '127.0.0.1'
+
+
 def runSimulation():
     """Chạy mô phỏng mạng và tự động khởi động edge server + IoT stations"""
     setLogLevel('info')
@@ -184,6 +217,12 @@ def runSimulation():
     simu_dir  = os.path.dirname(os.path.abspath(__file__))
     model_dir = os.path.join(os.path.dirname(simu_dir), 'model')
 
+    # IP thực của host machine — Mininet nodes cần IP này để reach Dashboard Flask
+    # Dùng IP của OVS bridge s1 (được gán ở create5GIoTTopology) thay vì host IP ngoài
+    dashboard_ip  = '10.0.0.254'   # IP host-side được gán cho s1 bridge
+    dashboard_url = f'http://{dashboard_ip}:5000/api/metrics'
+    info(f"\n*** Dashboard reachable at: {dashboard_url}\n")
+
     # Tạo topology
     net, edge_server, ap1, sta1, sta2 = create5GIoTTopology()
 
@@ -191,7 +230,8 @@ def runSimulation():
     testConnectivity(net, edge_server, sta1, sta2)
 
     # Khởi động Edge Server bên trong Mininet
-    ok = startEdgeServer(edge_server, model_dir, simu_dir)
+    ok = startEdgeServer(edge_server, model_dir, simu_dir,
+                         dashboard_url=dashboard_url)
     if not ok:
         info("\n*** ABORTED: No model files found. Stopping network.\n")
         net.stop()

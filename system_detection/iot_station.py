@@ -2,22 +2,120 @@
 """
 IoT Station - Sensor Data Collector & Transmitter
 Gửi dữ liệu cảm biến đến Edge Server để phân tích
+
+Mininet-WiFi Integration:
+- Tự động phát hiện nếu đang chạy trong Mininet node (qua env MININET_NODE)
+- Đọc RSSI thực, bitrate, AP info từ kernel qua lệnh `iw dev`
+- Gửi wireless stats kèm theo mỗi request đến Edge Server
 """
 
 import socket
 import json
 import time
 import random
+import subprocess
+import os
 import numpy as np
 from datetime import datetime
 
+
+class MininetWirelessMonitor:
+    """
+    Đọc thông tin wireless thực tế khi station đang chạy trong Mininet-WiFi node.
+    Dùng lệnh `iw dev <interface> link` để lấy RSSI, bitrate, BSSID từ kernel.
+    Nếu không trong Mininet (interface không tồn tại), trả về None cho tất cả.
+    """
+
+    def __init__(self, device_id: str):
+        self.device_id = device_id
+        # Env var MININET_NODE được set bởi 5g_iot_mininet.py khi spawn process
+        self.mininet_node = os.environ.get('MININET_NODE', None)
+        # Wireless interface trong Mininet-WiFi: <node>-wlan0
+        self.wlan_iface = f"{device_id}-wlan0"
+        self.in_mininet = self._check_mininet()
+
+        if self.in_mininet:
+            print(f"[Mininet-WiFi] Node={self.mininet_node}  iface={self.wlan_iface}")
+        else:
+            print("[Mininet-WiFi] Not running in Mininet — wireless monitor disabled")
+
+    def _check_mininet(self) -> bool:
+        """Kiểm tra có interface wireless Mininet không."""
+        if self.mininet_node is not None:
+            return True
+        # Fallback: thử kiểm tra interface có tồn tại không
+        try:
+            result = subprocess.run(
+                ['ip', 'link', 'show', self.wlan_iface],
+                capture_output=True, text=True, timeout=1
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def get_wireless_info(self) -> dict:
+        """
+        Đọc thông tin wireless từ kernel qua `iw dev <iface> link`.
+        Returns dict với các keys:
+            signal_dbm       (int|None)  — RSSI, e.g. -52
+            link_bitrate_mbps (float|None) — tx bitrate, e.g. 300.0
+            ap_bssid         (str|None)  — MAC của AP đang kết nối
+            ap_ssid          (str|None)  — SSID (từ env var)
+            mininet_node     (str|None)  — tên node Mininet
+        """
+        info = {
+            'signal_dbm': None,
+            'link_bitrate_mbps': None,
+            'ap_bssid': None,
+            'ap_ssid': os.environ.get('MININET_AP_SSID', None),
+            'mininet_node': self.mininet_node,
+        }
+
+        if not self.in_mininet:
+            return info
+
+        try:
+            result = subprocess.run(
+                ['iw', 'dev', self.wlan_iface, 'link'],
+                capture_output=True, text=True, timeout=2
+            )
+            if result.returncode != 0 or 'Not connected' in result.stdout:
+                return info
+
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                # BSSID — first line: "Connected to aa:bb:cc:dd:ee:ff (on ...)"
+                if line.startswith('Connected to'):
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        info['ap_bssid'] = parts[2]
+                # signal: -52 dBm
+                elif line.startswith('signal:'):
+                    try:
+                        info['signal_dbm'] = int(line.split()[1])
+                    except (IndexError, ValueError):
+                        pass
+                # tx bitrate: 300.0 MBit/s ...
+                elif line.startswith('tx bitrate:'):
+                    try:
+                        info['link_bitrate_mbps'] = float(line.split()[2])
+                    except (IndexError, ValueError):
+                        pass
+        except Exception:
+            pass
+
+        return info
+
+
 class IoTSensorStation:
     """IoT Station thu thập và gửi dữ liệu cảm biến"""
-    
+
     def __init__(self, device_id, edge_ip='localhost', edge_port=5001):
         self.device_id = device_id
         self.edge_ip = edge_ip
         self.edge_port = edge_port
+        # Mininet wireless monitor — hoạt động như stub nếu không trong Mininet
+        self.wireless = MininetWirelessMonitor(device_id)
         
     def generate_sensor_data(self, anomaly=False):
         """
@@ -133,33 +231,35 @@ class IoTSensorStation:
         return features
     
     def send_data(self, features):
-        """Gửi dữ liệu đến Edge Server"""
+        """Gửi dữ liệu đến Edge Server, kèm wireless info nếu trong Mininet."""
         try:
-            # Tạo socket
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(5)
-            
-            # Kết nối đến Edge Server
             sock.connect((self.edge_ip, self.edge_port))
-            
-            # Tạo request
+
+            # Đọc wireless info từ kernel (nếu có)
+            winfo = self.wireless.get_wireless_info()
+
             request = {
                 'device_id': self.device_id,
-                'features': features,
-                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                'features':  features,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                # Mininet-WiFi context — None nếu không trong Mininet
+                'wireless': {
+                    'mininet_node':      winfo['mininet_node'],
+                    'ap_ssid':           winfo['ap_ssid'],
+                    'ap_bssid':          winfo['ap_bssid'],
+                    'signal_dbm':        winfo['signal_dbm'],
+                    'link_bitrate_mbps': winfo['link_bitrate_mbps'],
+                }
             }
-            
-            # Gửi dữ liệu
+
             sock.send(json.dumps(request).encode())
-            
-            # Nhận kết quả
             response = sock.recv(4096).decode()
             result = json.loads(response)
-            # print(f"\nReceived from edge: {result}")
             sock.close()
-            
             return result
-            
+
         except Exception as e:
             return {'error': str(e)}
     
@@ -202,7 +302,10 @@ class IoTSensorStation:
                 else:
                     pred = result['prediction']
                     conf = result['confidence']
-                    print(f"→ Edge: {pred} ({conf*100:.1f}%)")
+                    winfo = result.get('wireless_echo', {})
+                    sig = winfo.get('signal_dbm')
+                    sig_str = f"  sig={sig}dBm" if sig is not None else ""
+                    print(f"→ Edge: {pred} ({conf*100:.1f}%){sig_str}")
                 
                 time.sleep(interval)
                 
