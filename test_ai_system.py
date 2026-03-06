@@ -3,19 +3,23 @@
 =============================================================
   TEST SCRIPT — 5G IoT Anomaly Detection AI System
 =============================================================
-Kiểm tra toàn bộ hệ thống AI theo 4 tầng:
+Kiểm tra toàn bộ hệ thống AI theo 6 tầng:
 
   [TIER 1] Unit Test  — Model trực tiếp (.pkl)
   [TIER 2] Module Test — AnomalyDetector (detection.py)
   [TIER 3] API Test   — Dashboard Flask HTTP API
   [TIER 4] Integration — Edge Server TCP Socket
+  [TIER 5] Consistency — So sánh 2 tầng AI
+  [TIER 6] Mininet-WiFi — Môi trường Mininet
 
 Chạy:
-  python3 test_ai_system.py                    # Tier 1+2 (không cần server)
+  python3 test_ai_system.py                    # Tier 1+2+5 (không cần server)
   python3 test_ai_system.py --api              # + Tier 3 (cần dashboard chạy)
   python3 test_ai_system.py --edge             # + Tier 4 (cần edge server chạy)
+  python3 test_ai_system.py --mininet          # + Tier 6 (cần Mininet-WiFi)
   python3 test_ai_system.py --all              # Tất cả tier
 =============================================================
+"""
 """
 
 import sys
@@ -633,6 +637,97 @@ def tier5_consistency_test():
 
 
 # =============================================================
+#  TIER 6 — Mininet-WiFi integration tests
+# =============================================================
+
+def tier6_mininet_tests():
+    header("TIER 6 — Mininet-WiFi Integration Tests")
+
+    # 6.1 — Kiểm tra mn_wifi có import được không
+    section("6.1  Import mn_wifi")
+    try:
+        import mn_wifi  # noqa: F401
+        ok("mn_wifi importable")
+    except ImportError:
+        fail("mn_wifi không import được — cài mininet-wifi trước",
+             "sudo pip install mininet-wifi  hoặc build từ source")
+        skip("Bỏ qua các test Mininet còn lại")
+        return
+
+    # 6.2 — Kiểm tra 5g_iot_mininet.py syntax
+    section("6.2  Syntax của 5g_iot_mininet.py")
+    script = os.path.join(os.path.dirname(PROJECT_ROOT),
+                          "system_detection", "5g_iot_mininet.py")
+    # fallback: cùng thư mục với test script
+    if not os.path.exists(script):
+        script = os.path.join(PROJECT_ROOT, "system_detection", "5g_iot_mininet.py")
+    if not os.path.exists(script):
+        script = os.path.join(PROJECT_ROOT, "5g_iot_mininet.py")
+
+    if os.path.exists(script):
+        import subprocess
+        result = subprocess.run([sys.executable, "-m", "py_compile", script],
+                                capture_output=True, text=True)
+        if result.returncode == 0:
+            ok(f"5g_iot_mininet.py: syntax OK")
+        else:
+            fail("5g_iot_mininet.py: syntax error", result.stderr.strip())
+    else:
+        skip(f"5g_iot_mininet.py not found at {script}")
+
+    # 6.3 — Kiểm tra MININET_NODE env var
+    section("6.3  Môi trường Mininet")
+    mn_node = os.environ.get("MININET_NODE")
+    if mn_node:
+        ok(f"Đang chạy trong Mininet node: {mn_node}")
+    else:
+        info("MININET_NODE chưa được set — test được coi là môi trường host bình thường")
+        skip("Không trong Mininet namespace — bỏ qua live wireless tests")
+        return
+
+    # 6.4 — Kiểm tra iw/wireless interface tồn tại
+    section("6.4  Wireless interface")
+    import subprocess
+    wlan_iface = f"{mn_node}-wlan0"
+    result = subprocess.run(["ip", "link", "show", wlan_iface],
+                            capture_output=True, text=True)
+    if result.returncode == 0:
+        ok(f"Interface {wlan_iface} tồn tại")
+    else:
+        fail(f"Interface {wlan_iface} không tồn tại",
+             "Hãy chạy bên trong Mininet-WiFi topology")
+        return
+
+    # 6.5 — Đọc wireless info qua iw dev
+    section("6.5  iw dev wireless info")
+    result = subprocess.run(["iw", "dev", wlan_iface, "link"],
+                            capture_output=True, text=True)
+    if result.returncode == 0:
+        output = result.stdout
+        if "signal" in output.lower():
+            import re
+            m = re.search(r"signal:\s*(-?\d+)\s*dBm", output)
+            if m:
+                ok(f"Signal strength: {m.group(1)} dBm")
+            else:
+                ok("iw dev link thành công (signal field không parse được)")
+        else:
+            ok("iw dev link thành công (không kết nối AP hoặc không có signal)")
+        info(output.strip()[:200])
+    else:
+        fail("iw dev link thất bại", result.stderr.strip())
+
+    # 6.6 — Mininet env vars có đầy đủ không
+    section("6.6  Mininet env vars")
+    ap_ssid = os.environ.get("MININET_AP_SSID")
+    if ap_ssid:
+        ok(f"MININET_AP_SSID={ap_ssid}")
+    else:
+        fail("MININET_AP_SSID chưa được set trong process",
+             "5g_iot_mininet.py nên set MININET_AP_SSID=5G-IoT-Network khi spawn process")
+
+
+# =============================================================
 #  SUMMARY
 # =============================================================
 
@@ -659,6 +754,7 @@ def main():
     parser = argparse.ArgumentParser(description="Test AI system cho 5G IoT Anomaly Detection")
     parser.add_argument("--api",      action="store_true", help="Bao gồm API test (cần dashboard đang chạy)")
     parser.add_argument("--edge",     action="store_true", help="Bao gồm Edge Server test (cần server đang chạy)")
+    parser.add_argument("--mininet",  action="store_true", help="Bao gồm Mininet-WiFi test (cần mn_wifi + environment)")
     parser.add_argument("--all",      action="store_true", help="Chạy tất cả các tier")
     parser.add_argument("--api-url",  default="http://localhost:5000", help="Dashboard API URL")
     parser.add_argument("--edge-host",default="localhost",  help="Edge server host")
@@ -689,6 +785,13 @@ def main():
     else:
         header("TIER 4 — Edge Server Test (bỏ qua)")
         skip("Dùng --edge hoặc --all để chạy tier này")
+
+    # Tier 6 — Mininet-WiFi
+    if args.all or args.mininet:
+        tier6_mininet_tests()
+    else:
+        header("TIER 6 — Mininet-WiFi Test (bỏ qua)")
+        skip("Dùng --mininet hoặc --all để chạy tier này")
 
     print_summary()
 

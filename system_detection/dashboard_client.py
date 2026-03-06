@@ -16,62 +16,82 @@ class DashboardClient:
     def __init__(self, dashboard_url='http://localhost:5000/api/metrics'):
         self.dashboard_url = dashboard_url
         self.enabled = True
-        
-        # Test connection
+        self._consecutive_failures = 0
+        self._MAX_FAILURES = 10  # disable sau khi thất bại 10 lần liên tiếp
+
+        # Test connection — chỉ log warning, KHÔNG disable nếu fail
+        # (trong Mininet, bridge có thể chưa ready lúc init)
         try:
             health_url = dashboard_url.replace('/api/metrics', '/health')
-            response = requests.get(health_url, timeout=1)
+            response = requests.get(health_url, timeout=2)
             if response.status_code == 200:
-                logger.info("✓ Dashboard connection successful")
+                logger.info(f"✓ Dashboard connected: {dashboard_url}")
             else:
-                logger.warning("⚠ Dashboard not responding")
-                self.enabled = False
+                logger.warning(f"⚠ Dashboard health check returned {response.status_code} — will retry on each send")
         except Exception as e:
-            logger.warning(f"⚠ Dashboard not available - metrics won't be sent ({e})")
-            self.enabled = False
+            logger.warning(f"⚠ Dashboard not reachable at init ({e}) — will retry on each send")
     
     def send_metrics(self, device_id, timestamp, prediction, confidence,
-                     probability_malicious, **raw_features):
+                     probability_malicious, mininet_ctx=None, **raw_features):
         """
         Gửi kết quả từ Edge AI và raw features đến dashboard.
-        Chỉ truyền tải dữ liệu đã có, không tính toán thêm.
+        Nếu có Mininet context (chạy trong Mininet-WiFi), gửi kèm.
 
         Args:
-            device_id (str): ID thiết bị
-            timestamp (str): Thời gian (từ Edge Server)
-            prediction (str): 'Benign' hoặc 'Malicious'
-            confidence (float): Xác suất của class dự đoán (max probability)
-            probability_malicious (float): Xác suất thuộc class Malicious (= anomaly score)
-            **raw_features: Các feature thực từ 24 features
-                (tot_bytes, src_bytes, tcp_rtt, s_hops, s_ttl, d_ttl,
-                 s_mean_pkt_sz, icmp, tcp_flag, rst_flag)
+            device_id (str)             : ID thiết bị
+            timestamp (str)             : Thời gian (từ Edge Server)
+            prediction (str)            : 'Benign' hoặc 'Malicious'
+            confidence (float)          : Độ tin cậy model
+            probability_malicious (float): P(Malicious) = anomaly score
+            mininet_ctx (dict|None)     : Mininet-WiFi context (node, SSID, RSSI, bitrate)
+            **raw_features              : Các feature thực từ 24 features
 
         Returns:
-            dict or False: Detection result hoặc False nếu lỗi
+            dict or False
         """
+        if not self.enabled:
+            return False
+
         if not self.enabled:
             return False
 
         try:
             data = {
-                'timestamp':            timestamp,
-                'device_id':            device_id,
-                'prediction':           prediction,
-                'confidence':           float(confidence),
+                'timestamp':             timestamp,
+                'device_id':             device_id,
+                'prediction':            prediction,
+                'confidence':            float(confidence),
                 'probability_malicious': float(probability_malicious),
             }
-            data.update(raw_features)  # tất cả raw feature values
+            data.update(raw_features)  # tot_bytes, tcp_rtt, s_ttl, ...
+
+            # Flatten Mininet context vào record nếu có
+            if mininet_ctx:
+                for key, val in mininet_ctx.items():
+                    if val is not None:          # chỉ gửi field có giá trị thực
+                        data[key] = val
 
             response = requests.post(self.dashboard_url, json=data, timeout=1)
 
             if response.status_code == 200:
+                # Reset failure counter khi thành công
+                if self._consecutive_failures > 0:
+                    logger.info("✓ Dashboard reconnected!")
+                    self._consecutive_failures = 0
                 return response.json().get('detection', {})
             else:
                 logger.error(f"✗ Dashboard error: HTTP {response.status_code}")
+                self._consecutive_failures += 1
                 return False
 
         except Exception as e:
-            logger.error(f"✗ Error sending to dashboard: {e}")
+            self._consecutive_failures += 1
+            if self._consecutive_failures == 1:
+                # Chỉ log lần đầu, tránh spam log
+                logger.error(f"✗ Error sending to dashboard: {e}")
+            elif self._consecutive_failures >= self._MAX_FAILURES:
+                logger.error(f"✗ Dashboard unreachable after {self._MAX_FAILURES} attempts — disabling client")
+                self.enabled = False
             return False
     
     def send_batch(self, metrics_list):

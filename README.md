@@ -2,6 +2,409 @@
 
 Hệ thống phát hiện anomaly cho mạng 5G-IoT với **Web Dashboard real-time**, **Edge Server AI**, và **Decision Tree 24 features**. Toàn bộ kết quả phát hiện đến từ Edge Server — không có mock, không có fake metrics.
 
+Hệ thống hỗ trợ **2 chế độ vận hành**:
+- **Standalone** — Chạy trực tiếp trên máy host, phù hợp để test nhanh
+- **Mininet-WiFi 5G** — Mô phỏng mạng 5G với wireless nodes, AP, và edge computing
+
+---
+
+## 📋 Project Structure
+
+```
+detection_anomaly/
+├── README.md                       # File này
+├── test_ai_system.py               # 🧪 Test suite toàn bộ hệ thống AI
+│
+├── dashboard/                      # 🌐 Web Monitoring Dashboard
+│   ├── backend/
+│   │   ├── app.py                  # Flask API — Routes & endpoints
+│   │   ├── config.py               # Cấu hình server + model paths
+│   │   ├── detection.py            # ⚠️ DEPRECATED — không còn được dùng
+│   │   └── storage.py              # In-memory data storage
+│   └── frontend/
+│       └── index.html              # Real-time charts & tables
+│
+├── model/                          # 🤖 Trained Model Files
+│   ├── decision_tree_model_20260305_223751.pkl   # Decision Tree (24 features)
+│   ├── scaler_20260305_223751.pkl                # StandardScaler
+│   └── feature_names_20260305_223751.pkl         # Tên 24 features
+│
+├── model_development/
+│   └── train-model.ipynb           # Training notebook
+│
+├── dataset/
+│   └── Encoded.csv                 # 5G-IoT traffic dataset
+│
+└── system_detection/               # 🔬 Network Simulation
+    ├── edge_server_with_dashboard.py  # ⭐ Edge Server chính (port 5001)
+    ├── iot_station.py              # IoT traffic generator (24 features)
+    ├── dashboard_client.py         # HTTP client gửi kết quả → dashboard
+    ├── 5g_iot_mininet.py           # ⭐ Mininet-WiFi 5G topology
+    └── ...
+```
+
+---
+
+## 🏗️ Kiến trúc hệ thống
+
+### Kiến trúc chung (cả 2 mode)
+
+```
+IoT Station(s) ──TCP :5001──► Edge Server (AI) ──POST /api/metrics──► Flask Dashboard
+                               Decision Tree                           app.py :5000
+                               24 features                            Browser :5000
+                               Benign/Malicious
+```
+
+### Mininet-WiFi mode — Luồng dữ liệu đầy đủ
+
+```
+sta1 (10.0.0.1) ──WiFi──┐
+                         ├──► ap1 (5G-IoT-Network) ──► s1 switch ──► edge1 (10.0.0.100)
+sta2 (10.0.0.2) ──WiFi──┘                                                    │
+                                                                    AI detect (24 features)
+                                                                              │
+                                                              POST http://10.0.0.254:5000
+                                                                              │
+                                                           s1 bridge (10.0.0.254) ← host IP
+                                                                              │
+                                                              Flask app.py (0.0.0.0:5000)
+                                                                              │
+                                                              http://localhost:5000 ← Browser
+```
+
+**Một tầng AI duy nhất** — toàn bộ phát hiện thực hiện tại Edge Server. Dashboard chỉ nhận, lưu trữ và hiển thị kết quả.
+
+---
+
+## 🔵 Mode 1 — Standalone (Localhost)
+
+Chạy toàn bộ hệ thống trên máy host không cần Mininet. Phù hợp để test nhanh, debug model.
+
+### Cài đặt
+
+```bash
+pip install flask flask-cors numpy scikit-learn joblib pandas requests
+```
+
+### Khởi động (3 terminal riêng, theo thứ tự)
+
+**Terminal 1 — Dashboard:**
+```bash
+cd detection_anomaly/dashboard
+python backend/app.py
+# ✅ Chờ: * Running on http://0.0.0.0:5000
+```
+
+**Terminal 2 — Edge Server:**
+```bash
+cd detection_anomaly/system_detection
+python edge_server_with_dashboard.py
+# ✅ Chờ: Dashboard integration: ✅ Enabled
+# ✅ Chờ: 💻 Standalone mode (not in Mininet)
+```
+
+**Terminal 3 — IoT Station:**
+```bash
+cd detection_anomaly/system_detection
+python iot_station.py sta1 2 0.2
+#                      ^    ^  ^
+#               device_id  interval(s)  anomaly_rate(20%)
+```
+
+**Truy cập dashboard**: `http://localhost:5000`
+
+### Chạy nhiều stations song song
+
+```bash
+python iot_station.py sta1 2 0.1   # Camera an ninh — 10% anomaly
+python iot_station.py sta2 1 0.3   # Sensor cảm biến — 30% anomaly
+python iot_station.py sta3 3 0.0   # Gateway — 100% benign
+```
+
+### Xác nhận hoạt động
+
+```bash
+curl -s http://localhost:5000/health | python3 -m json.tool
+# "status": "healthy"
+# "mininet_wifi": {"active": false, ...}
+
+curl -s http://localhost:5000/api/topology | python3 -m json.tool
+# "in_mininet": false
+# "nodes": [{"device_id": "sta1", ...}]
+```
+
+---
+
+## 📶 Mode 2 — Mininet-WiFi 5G (Mô phỏng mạng thực)
+
+Mô phỏng mạng 5G-IoT hoàn chỉnh với wireless stations, Access Point (gNodeB), edge computing node. Dữ liệu wireless thực (RSSI, bitrate) được đưa vào pipeline AI.
+
+### Yêu cầu
+
+```bash
+# Mininet-WiFi phải được cài sẵn
+sudo apt-get install mininet        # hoặc build từ source
+# mn_wifi Python package
+pip install mininet-wifi            # hoặc: sudo pip install mininet-wifi
+
+# Kiểm tra
+python -c "from mn_wifi.net import Mininet_wifi; print('OK')"
+```
+
+### Topology được tạo tự động
+
+```
+edge1 (10.0.0.100) ── s1 ── ap1 (5G-IoT-Network, 802.11ac, ch36)
+                                  ├── sta1 (10.0.0.1,  pos 30,40,0)
+                                  └── sta2 (10.0.0.2,  pos 70,60,0)
+
+s1 bridge: 10.0.0.254  ← host machine Flask reachable tại địa chỉ này
+```
+
+### Khởi động (BẮT BUỘC đúng thứ tự)
+
+**Bước 1 — Dọn dẹp môi trường cũ (mỗi lần start mới):**
+```bash
+sudo mn -c
+sudo pkill -f "edge_server_with_dashboard.py" 2>/dev/null
+sudo pkill -f "iot_station.py" 2>/dev/null
+```
+
+**Bước 2 — Terminal 1: Start Flask Dashboard TRƯỚC:**
+```bash
+cd detection_anomaly/dashboard
+python backend/app.py
+# ✅ Chờ: * Running on http://0.0.0.0:5000
+```
+> ⚠️ **Bắt buộc start Flask trước Mininet.** Nếu start sau, edge server sẽ fail health check lúc init và cần restart thủ công.
+
+**Bước 3 — Terminal 2: Start Mininet-WiFi (dùng sudo):**
+```bash
+cd detection_anomaly/system_detection
+sudo python 5g_iot_mininet.py
+```
+
+Script tự động thực hiện:
+1. Tạo topology (edge1 + ap1 + sta1 + sta2)
+2. Gán IP `10.0.0.254` cho OVS bridge `s1` → Flask reachable từ Mininet nodes
+3. Thêm OpenFlow rule `actions=normal` cho bridge `s1`
+4. Start Edge Server bên trong `edge1` với `MININET_NODE=edge1`
+5. Start IoT Stations với `MININET_NODE=sta1/sta2`
+6. Mở Mininet CLI
+
+**Bước 4 — Kiểm tra trong Mininet CLI:**
+```
+mininet-wifi> edge1 tail -15 /tmp/edge_server.log
+```
+Kết quả mong đợi:
+```
+✓ Dashboard connected: http://10.0.0.254:5000/api/metrics
+📶 Mininet-WiFi mode: node=edge1  AP=5G-IoT-Network
+Dashboard integration: ✅ Enabled
+🟢 [Benign] conf=100% p_mal=0.0000 | TotBytes=... sig=-76dBm | Dashboard: ✓
+```
+
+**Bước 5 — Xác nhận từ terminal thường:**
+```bash
+curl -s http://localhost:5000/api/topology | python3 -m json.tool
+```
+Kết quả mong đợi:
+```json
+{
+    "in_mininet": true,
+    "node_count": 2,
+    "nodes": [
+        {
+            "device_id": "sta1",
+            "mininet_node": "edge1",
+            "ap_ssid": "5G-IoT-Network",
+            "last_signal_dbm": -76,
+            "last_link_bitrate_mbps": 54.0
+        }
+    ],
+    "topology": {
+        "ssid": "5G-IoT-Network",
+        "bssid": "..."
+    }
+}
+```
+
+### Các lệnh hữu ích trong Mininet CLI
+
+```
+# Xem topology
+mininet-wifi> nodes
+mininet-wifi> links
+mininet-wifi> dump
+
+# Xem logs realtime
+mininet-wifi> edge1 tail -f /tmp/edge_server.log
+mininet-wifi> sta1  tail -f /tmp/sta1.log
+mininet-wifi> sta2  tail -f /tmp/sta2.log
+
+# Test connectivity
+mininet-wifi> sta1 ping -c 3 10.0.0.100
+mininet-wifi> edge1 curl -s http://10.0.0.254:5000/health
+
+# Xem wireless info
+mininet-wifi> sta1 iw dev sta1-wlan0 link
+
+# Xem MININET_NODE đã được set chưa
+mininet-wifi> edge1 env | grep MININET
+
+# Mở terminal riêng
+mininet-wifi> xterm edge1
+
+# Thoát
+mininet-wifi> exit
+```
+
+### Xử lý sự cố Mininet
+
+**Dashboard vẫn `✗` sau khi Mininet start:**
+```bash
+# Kiểm tra OVS flow rules
+sudo ovs-ofctl dump-flows s1
+
+# Nếu trống → thêm thủ công
+sudo ovs-ofctl add-flow s1 "priority=1,actions=normal"
+```
+Sau đó restart edge server trong Mininet CLI:
+```
+mininet-wifi> edge1 pkill -f edge_server_with_dashboard.py
+mininet-wifi> edge1 cd /home/ashine/Downloads/detection_anomaly/system_detection && MININET_NODE=edge1 MININET_AP_SSID=5G-IoT-Network python3 -u edge_server_with_dashboard.py /home/ashine/Downloads/detection_anomaly/model/decision_tree_model_20260305_223751.pkl /home/ashine/Downloads/detection_anomaly/model/scaler_20260305_223751.pkl http://10.0.0.254:5000/api/metrics > /tmp/edge_server.log 2>&1 &
+```
+
+**`in_mininet: false` dù đã chạy 5g_iot_mininet.py:**
+
+Kiểm tra thứ tự start: Flask **phải** chạy trước `sudo python 5g_iot_mininet.py`.
+
+**`Connection refused` từ edge1 khi curl dashboard:**
+```bash
+# Kiểm tra IP bridge s1
+ip addr show s1 | grep "10.0.0.254"
+
+# Nếu không có → thêm thủ công
+sudo ip addr add 10.0.0.254/24 dev s1
+sudo ip link set s1 up
+sudo ovs-ofctl add-flow s1 "priority=1,actions=normal"
+```
+
+### Mininet Wireless fields trong Dashboard
+
+Khi chạy Mininet mode, các cột sau xuất hiện trong bảng dashboard:
+
+| Field | Ý nghĩa | Ví dụ |
+|-------|---------|-------|
+| `Node` | Tên Mininet node | `edge1`, `sta1` |
+| `Signal (dBm)` | RSSI từ `iw dev` | `-76` |
+| `Bitrate (Mbps)` | Link bitrate | `54.0` |
+| `AP SSID` | Tên Access Point | `5G-IoT-Network` |
+
+---
+
+## 📊 So sánh 2 Mode
+
+| Tiêu chí | Standalone | Mininet-WiFi 5G |
+|----------|-----------|-----------------|
+| Yêu cầu | Python packages | + mininet-wifi, sudo |
+| Dashboard URL | `http://localhost:5000` | `http://localhost:5000` (từ host) |
+| Edge → Dashboard | `http://localhost:5000` | `http://10.0.0.254:5000` |
+| `in_mininet` | `false` | `true` |
+| `signal_dbm` | `null` | `-76` (dBm thực) |
+| `ap_ssid` | `null` | `"5G-IoT-Network"` |
+| Wireless simulation | ❌ | ✅ wmediumd interference |
+| `/api/topology` | nodes rỗng | nodes đầy đủ |
+| Log Edge Server | `💻 Standalone mode` | `📶 Mininet-WiFi mode` |
+
+---
+
+## 🔌 API Endpoints
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/` | Dashboard UI (index.html) |
+| `POST` | `/api/metrics` | Nhận kết quả từ Edge Server |
+| `GET` | `/api/metrics` | Lấy toàn bộ data (metrics + anomaly_events + statistics) |
+| `GET` | `/api/topology` | Mininet-WiFi topology (nodes, AP, signal) |
+| `POST` | `/api/reset` | Xóa toàn bộ dữ liệu |
+| `GET` | `/health` | Health check + Mininet status |
+
+**Required fields cho POST `/api/metrics`**:
+`timestamp`, `device_id`, `prediction`, `confidence`, `probability_malicious`
+
+**Optional Mininet fields** (tự động thêm khi chạy Mininet mode):
+`mininet_node`, `station_node`, `ap_ssid`, `ap_bssid`, `signal_dbm`, `link_bitrate_mbps`
+
+---
+
+## 🧪 Test Suite
+
+```bash
+# Tier 1+2+5 — không cần server
+python3 test_ai_system.py
+
+# + Tier 3 — cần Dashboard đang chạy
+python3 test_ai_system.py --api
+
+# + Tier 4 — cần cả Dashboard + Edge Server
+python3 test_ai_system.py --edge
+
+# + Tier 6 — cần Mininet-WiFi
+python3 test_ai_system.py --mininet
+
+# Tất cả tiers
+python3 test_ai_system.py --all
+```
+
+| Tier | Nội dung | Cần server? |
+|------|----------|-------------|
+| **1** — Unit | Load `.pkl`, predict samples thật từ dataset | ❌ |
+| **2** — Module | `AnomalyDetector` import, `predict()` | ❌ |
+| **3** — API | HTTP POST/GET đến Flask | ✅ Dashboard |
+| **4** — Integration | TCP socket, mal/benign + load test | ✅ Edge + Dashboard |
+| **5** — Consistency | So sánh `.pkl` vs `AnomalyDetector` | ❌ |
+| **6** — Mininet | mn_wifi import, syntax, wireless interface | ✅ Mininet |
+
+---
+
+## 🔧 Cài đặt
+
+```bash
+# Standalone
+pip install flask flask-cors numpy scikit-learn joblib pandas requests
+
+# Mininet-WiFi (thêm)
+sudo apt-get install mininet
+pip install mininet-wifi
+```
+
+---
+
+## 🐛 Troubleshooting chung
+
+### Edge Server báo "Port already in use"
+```bash
+lsof -i :5001 | grep LISTEN
+kill -9 <PID>
+```
+
+### sklearn InconsistentVersionWarning
+Model train với sklearn 1.7.1. Chỉ là warning, không ảnh hưởng kết quả. Retrain bằng `train-model.ipynb` để loại bỏ.
+
+### Dashboard không nhận dữ liệu (Standalone)
+Kiểm tra Edge Server log: dòng `Dashboard: ✓` xác nhận gửi thành công. Nếu `Dashboard: ✗`, kiểm tra Flask có đang chạy không.
+
+---
+
+## 📄 Tài liệu liên quan
+
+- [dashboard/README.md](dashboard/README.md) — Chi tiết dashboard
+- [system_detection/README.md](system_detection/README.md) — Chi tiết simulation
+- [system_detection/QUICKSTART_REAL_DATA.md](system_detection/QUICKSTART_REAL_DATA.md) — Quick reference
+
+
 ---
 
 ## 📋 Project Structure

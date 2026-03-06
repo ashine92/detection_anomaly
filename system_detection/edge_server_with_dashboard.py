@@ -2,6 +2,11 @@
 """
 Edge Server với Dashboard Integration
 Phát hiện anomaly VÀ gửi network metrics đến dashboard
+
+Mininet-WiFi Integration:
+- Đọc biết đang chạy trong Mininet node nào qua env MININET_NODE
+- Nhận wireless stats từ IoT Station (RSSI, bitrate, AP info)
+- Đưa mininet context vào mọi metric gửi dashboard
 """
 
 import socket
@@ -51,6 +56,13 @@ class EdgeIoTDetectionServerWithDashboard:
         self.benign_count = 0
         self.malicious_count = 0
 
+        # Mininet-WiFi context — được set bởi 5g_iot_mininet.py qua env vars
+        self.mininet_node = os.environ.get('MININET_NODE', None)
+        self.mininet_ap_ssid = os.environ.get('MININET_AP_SSID', None)
+        self.in_mininet = self.mininet_node is not None
+        if self.in_mininet:
+            logger.info(f"📶 Running inside Mininet node: {self.mininet_node}  AP: {self.mininet_ap_ssid}")
+
     def detect_anomaly(self, features):
         """Phát hiện anomaly từ 24 features"""
         try:
@@ -97,7 +109,9 @@ class EdgeIoTDetectionServerWithDashboard:
             
             device_id = request.get('device_id', f'unknown_{address[0]}')
             features = request.get('features', [])
-            
+            # Wireless info được gửi từ iot_station.py (có khi chạy trong Mininet)
+            wireless = request.get('wireless', {})
+
             if len(features) != 24:
                 logger.warning(f"Invalid features length: {len(features)} (expected 24)")
                 return
@@ -108,10 +122,7 @@ class EdgeIoTDetectionServerWithDashboard:
             result = self.detect_anomaly(features)
             result['device_id'] = device_id
 
-            # 2. Trích xuất trực tiếp các feature thực từ 24 features (không tính toán thêm)
-            # Features: [0]Seq [1]Mean [2]sTos [3]sTtl [4]dTtl [5]sHops
-            #           [6]TotBytes [7]SrcBytes [8]Offset [9]sMeanPktSz [10]dMeanPktSz
-            #           [11]SrcWin [12]TcpRtt [13]AckDat [16]icmp [17]tcp [22]RST
+            # 2. Trích xuất trực tiếp các feature thực từ 24 features
             raw_features = {
                 'tot_bytes':      round(float(features[6]),  4),
                 'src_bytes':      round(float(features[7]),  4),
@@ -125,13 +136,26 @@ class EdgeIoTDetectionServerWithDashboard:
                 'rst_flag':       int(features[22]),
             }
 
-            # 3. Gửi đến dashboard: kết quả AI thực + raw features (không fake)
+            # 3. Mininet-WiFi context: merge server-side + station-side info
+            mininet_ctx = {
+                # Từ Edge Server (env var được set bởi 5g_iot_mininet.py)
+                'mininet_node':      self.mininet_node,
+                'ap_ssid':           self.mininet_ap_ssid,
+                # Từ IoT Station (khi station chạy trong Mininet namespace)
+                'signal_dbm':        wireless.get('signal_dbm'),
+                'link_bitrate_mbps': wireless.get('link_bitrate_mbps'),
+                'ap_bssid':          wireless.get('ap_bssid'),
+                'station_node':      wireless.get('mininet_node'),
+            }
+
+            # 4. Gửi đến dashboard: AI result + raw features + Mininet context
             dashboard_result = self.dashboard.send_metrics(
                 device_id=device_id,
                 timestamp=result['timestamp'],
                 prediction=result['prediction'],
                 confidence=result['confidence'],
                 probability_malicious=result['probability_malicious'],
+                mininet_ctx=mininet_ctx,
                 **raw_features
             )
             
@@ -143,19 +167,25 @@ class EdgeIoTDetectionServerWithDashboard:
                 self.malicious_count += 1
                 logger.warning(f"⚠️  ALERT: Malicious activity from {device_id}!")
             
-            # Send response
+            # Send response (bao gồm wireless echo để IoT station hiển thị)
+            result['wireless_echo'] = {
+                'signal_dbm':        wireless.get('signal_dbm'),
+                'link_bitrate_mbps': wireless.get('link_bitrate_mbps'),
+            }
             response = json.dumps(result)
             client_socket.send(response.encode())
             
             # Log status
             status_symbol = "🔴" if result['prediction'] != 'Benign' else "🟢"
             dashboard_status = "✓" if dashboard_result else "✗"
-            
+            sig_str = f"  sig={wireless.get('signal_dbm')}dBm" if wireless.get('signal_dbm') is not None else ""
+
             logger.info(
                 f"{status_symbol} [{result['prediction']}] "
                 f"conf={result['confidence']*100:.0f}% "
                 f"p_mal={result['probability_malicious']:.4f} | "
-                f"TotBytes={features[6]} TcpRtt={features[12]} sHops={features[5]} | "
+                f"TotBytes={features[6]} TcpRtt={features[12]} sHops={features[5]}"
+                f"{sig_str} | "
                 f"Dashboard: {dashboard_status}"
             )
             
@@ -198,6 +228,10 @@ class EdgeIoTDetectionServerWithDashboard:
         logger.info(f"Server listening on {self.host}:{self.port}")
         logger.info(f"Dashboard integration: {'✅ Enabled' if self.dashboard.enabled else '❌ Disabled'}")
         logger.info(f"Model: {type(self.model).__name__}")
+        if self.in_mininet:
+            logger.info(f"📶 Mininet-WiFi mode: node={self.mininet_node}  AP={self.mininet_ap_ssid}")
+        else:
+            logger.info(f"💻 Standalone mode (not in Mininet)")
         logger.info("="*70)
         
         # Start stats thread

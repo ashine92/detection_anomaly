@@ -53,24 +53,8 @@ def index():
 def receive_metrics():
     """
     Receive real AI results + raw features from Edge Server.
-    Expected JSON (sent by edge_server_with_dashboard.py):
-    {
-        "timestamp":             "2026-03-06 12:00:00",
-        "device_id":             "sta1",
-        "prediction":            "Benign" | "Malicious",
-        "confidence":            0.99,
-        "probability_malicious": 0.0,      ← this is the anomaly score
-        "tot_bytes":             98.0,
-        "src_bytes":             98.0,
-        "tcp_rtt":               0.0,
-        "s_hops":                6.0,
-        "s_ttl":                 58.0,
-        "d_ttl":                 0.0,
-        "s_mean_pkt_sz":         98.0,
-        "icmp":                  0,
-        "tcp_flag":              0,
-        "rst_flag":              0
-    }
+    Optional Mininet-WiFi fields: mininet_node, ap_ssid, signal_dbm,
+                                  link_bitrate_mbps, ap_bssid, station_node
     """
     try:
         data = request.get_json()
@@ -82,9 +66,8 @@ def receive_metrics():
         if missing:
             return jsonify({'error': f'Missing fields: {", ".join(missing)}'}), 400
 
-        prediction   = data['prediction']          # 'Benign' or 'Malicious'
-        confidence   = float(data['confidence'])
-        # anomaly_score = probability of being Malicious (0.0 = definitely benign)
+        prediction    = data['prediction']
+        confidence    = float(data['confidence'])
         anomaly_score = round(float(data['probability_malicious']), 4)
 
         is_anomaly       = (prediction == 'Malicious')
@@ -108,23 +91,29 @@ def receive_metrics():
             'model_type':          'edge_ai_24_features',
         }
 
-        # Build the stored record — only real values, nothing computed
+        # Raw 24-feature keys
         RAW_FEATURE_KEYS = [
             'tot_bytes', 'src_bytes', 'tcp_rtt', 's_hops',
             's_ttl', 'd_ttl', 's_mean_pkt_sz',
             'icmp', 'tcp_flag', 'rst_flag',
         ]
+        # Optional Mininet-WiFi context keys
+        MININET_KEYS = [
+            'mininet_node', 'ap_ssid', 'signal_dbm',
+            'link_bitrate_mbps', 'ap_bssid', 'station_node',
+        ]
+
         complete_data = {
-            'timestamp':       data['timestamp'],
-            'device_id':       data['device_id'],
+            'timestamp':        data['timestamp'],
+            'device_id':        data['device_id'],
             'prediction_label': prediction_label,
-            'anomaly_score':   anomaly_score,
-            'confidence':      round(confidence, 4),
-            'severity':        severity,
-            'received_at':     datetime.now().isoformat(),
+            'anomaly_score':    anomaly_score,
+            'confidence':       round(confidence, 4),
+            'severity':         severity,
+            'received_at':      datetime.now().isoformat(),
         }
-        for key in RAW_FEATURE_KEYS:
-            if key in data:
+        for key in RAW_FEATURE_KEYS + MININET_KEYS:
+            if key in data and data[key] is not None:
                 complete_data[key] = data[key]
 
         storage.add_metric(complete_data)
@@ -132,11 +121,13 @@ def receive_metrics():
         if is_anomaly:
             storage.add_anomaly_event({**complete_data,
                                        'detected_at': complete_data['received_at']})
+            mn_info = f"  node={data.get('mininet_node','?')}" if data.get('mininet_node') else ""
             logger.warning(f"ANOMALY — {data['device_id']} "
-                           f"score={anomaly_score:.4f} severity={severity}")
+                           f"score={anomaly_score:.4f} severity={severity}{mn_info}")
         else:
+            sig_info = f"  sig={data['signal_dbm']}dBm" if data.get('signal_dbm') is not None else ""
             logger.info(f"Normal  — {data['device_id']} "
-                        f"score={anomaly_score:.4f} conf={confidence:.2%}")
+                        f"score={anomaly_score:.4f} conf={confidence:.2%}{sig_info}")
 
         return jsonify({
             'status': 'success',
@@ -191,19 +182,74 @@ def reset_data():
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """
-    Health check endpoint
-    Returns system status and statistics
-    """
+    """Health check endpoint"""
     stats = storage.get_statistics()
+    # Tiêm kiếm xem có data từ Mininet không
+    recent = storage.get_recent_metrics(5)
+    in_mininet = any(m.get('mininet_node') for m in recent)
+    mininet_nodes = list({m['mininet_node'] for m in recent if m.get('mininet_node')})
 
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
         'ai_mode': 'edge_ai_24_features',
         'ai_description': 'Decision Tree, 24 network flow features, running on Edge Server',
+        'mininet_wifi': {
+            'active': in_mininet,
+            'nodes_seen': mininet_nodes,
+        },
         'statistics': stats
     }), 200
+
+
+@app.route('/api/topology', methods=['GET'])
+def get_topology():
+    """
+    Trả về thông tin Mininet-WiFi topology từ data đang lưu trữ.
+    Nếu không có Mininet data, vẫn trả về cấu trúc rỗng.
+    """
+    try:
+        recent = storage.get_recent_metrics(100)
+
+        # Tổng hợp các node/AP đã xuất hiện trong data
+        nodes = {}
+        for m in recent:
+            dev = m.get('device_id', 'unknown')
+            if dev not in nodes:
+                nodes[dev] = {
+                    'device_id':    dev,
+                    'mininet_node': m.get('mininet_node'),
+                    'station_node': m.get('station_node'),
+                    'ap_ssid':      m.get('ap_ssid'),
+                    'ap_bssid':     m.get('ap_bssid'),
+                    'last_signal_dbm':        m.get('signal_dbm'),
+                    'last_link_bitrate_mbps': m.get('link_bitrate_mbps'),
+                    'last_seen':    m.get('timestamp'),
+                    'total_packets': 0,
+                    'anomaly_count': 0,
+                }
+            nodes[dev]['total_packets'] += 1
+            if m.get('prediction_label') == 'anomaly':
+                nodes[dev]['anomaly_count'] += 1
+            # Cập nhật signal mới nhất
+            if m.get('signal_dbm') is not None:
+                nodes[dev]['last_signal_dbm']        = m['signal_dbm']
+                nodes[dev]['last_link_bitrate_mbps'] = m.get('link_bitrate_mbps')
+
+        in_mininet = any(n.get('mininet_node') for n in nodes.values())
+
+        return jsonify({
+            'in_mininet': in_mininet,
+            'topology': {
+                'ssid':  next((n['ap_ssid']  for n in nodes.values() if n.get('ap_ssid')),  None),
+                'bssid': next((n['ap_bssid'] for n in nodes.values() if n.get('ap_bssid')), None),
+            },
+            'nodes': list(nodes.values()),
+            'node_count': len(nodes),
+        }), 200
+    except Exception as e:
+        logger.error(f"Error building topology: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/statistics', methods=['GET'])
@@ -240,6 +286,8 @@ if __name__ == '__main__':
     print(f"   • GET  /health           - Health check")
     print(f"\n🤖 AI Mode: Edge AI — 24-feature Decision Tree (runs on Edge Server)")
     print(f"   Dashboard displays Edge AI results only. No local AI model.")
+    print(f"📶 Mininet-WiFi: Transparent — accepts + displays wireless context if present")
+    print(f"   New endpoint: GET /api/topology — Mininet node/AP topology")
     print(f"\n💾 Storage Configuration:")
     print(f"   • Max metrics: {config.MAX_DATA_POINTS}")
     print(f"   • Max anomaly events: {config.MAX_ANOMALY_EVENTS}")
