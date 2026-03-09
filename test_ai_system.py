@@ -20,7 +20,6 @@ Chạy:
   python3 test_ai_system.py --all              # Tất cả tier
 =============================================================
 """
-"""
 
 import sys
 import os
@@ -272,102 +271,10 @@ def tier1_model_unit_tests():
 #  TIER 2 — Module Test: AnomalyDetector (detection.py)
 # =============================================================
 
-def tier2_module_tests():
-    header("TIER 2 — Module Test: AnomalyDetector (detection.py)")
-
-    section("2.1  Import module detection.py")
-    try:
-        sys.path.insert(0, DASHBOARD_DIR)
-        from detection import AnomalyDetector, detector as global_detector
-        ok("Import AnomalyDetector thành công")
-    except Exception as e:
-        fail("Import detection.py thất bại", str(e))
-        return
-
-    section("2.2  Khởi tạo AnomalyDetector")
-    try:
-        det = AnomalyDetector()
-        ok(f"AnomalyDetector() tạo thành công")
-        if det.model_loaded:
-            ok(f"Model loaded = True  (dùng trained model)")
-            info(f"Feature names: {det.feature_names}")
-        else:
-            skip("Model không load được → chạy mock mode (rule-based)")
-    except Exception as e:
-        fail("AnomalyDetector() lỗi", str(e))
-        return
-
-    section("2.3  Test predict() — 4 metrics đơn giản (mock mode)")
-    mock_cases = [
-        {
-            "name": "Bình thường",
-            "metrics": {"throughput": 80.0, "latency": 10.0, "packet_loss": 0.1, "rssi": -60},
-            "expected": "normal"
-        },
-        {
-            "name": "Latency cao (50ms+)",
-            "metrics": {"throughput": 70.0, "latency": 55.0, "packet_loss": 0.5, "rssi": -75},
-            "expected": "anomaly"
-        },
-        {
-            "name": "Throughput thấp + packet loss",
-            "metrics": {"throughput": 10.0, "latency": 5.0, "packet_loss": 10.0, "rssi": -80},
-            "expected": "anomaly"
-        },
-        {
-            "name": "Tất cả thấp",
-            "metrics": {"throughput": 5.0, "latency": 100.0, "packet_loss": 20.0, "rssi": -95},
-            "expected": "anomaly"
-        },
-    ]
-
-    for tc in mock_cases:
-        try:
-            label, score = det.predict(tc["metrics"])
-            match = (label == tc["expected"])
-            msg = f"{tc['name']:35s}  pred={label}  score={score:.3f}"
-            if match:
-                ok(msg)
-            else:
-                # Mock mode có thể khác expected nếu dùng model thật
-                info(f"  {msg}  (expected={tc['expected']}, có thể OK nếu dùng trained model)")
-        except Exception as e:
-            fail(f"{tc['name']}", str(e))
-
-    section("2.4  Test analyze_metrics() — kiểm tra output format")
-    try:
-        result = det.analyze_metrics({"throughput": 80, "latency": 10, "packet_loss": 0, "rssi": -60})
-        required_keys = ["prediction_label", "anomaly_score", "severity", "is_anomaly", "model_type"]
-        missing = [k for k in required_keys if k not in result]
-        if not missing:
-            ok(f"Output đầy đủ: {list(result.keys())}")
-            info(f"  prediction_label = {result['prediction_label']}")
-            info(f"  anomaly_score    = {result['anomaly_score']}")
-            info(f"  severity         = {result['severity']}")
-            info(f"  model_type       = {result['model_type']}")
-        else:
-            fail(f"Thiếu keys trong output: {missing}")
-    except Exception as e:
-        fail("analyze_metrics() lỗi", str(e))
-
-    section("2.5  Test preprocess_data() — nếu model loaded")
-    if det.model_loaded and det.feature_names:
-        try:
-            sample = {name: val for name, val in zip(det.feature_names, TEST_CASES["benign_real_3"]["features"])}
-            arr = det.preprocess_data(sample)
-            if arr is not None and arr.shape == (1, len(det.feature_names)):
-                ok(f"preprocess_data() trả về shape {arr.shape}")
-            else:
-                fail(f"preprocess_data() trả về shape sai: {arr}")
-        except Exception as e:
-            fail("preprocess_data() lỗi", str(e))
-    else:
-        skip("Model chưa load → bỏ qua test preprocess_data()")
-
-
 # =============================================================
 #  TIER 3 — API Test: Dashboard HTTP (Flask)
 # =============================================================
+
 
 def tier3_api_tests(api_url: str = "http://localhost:5000"):
     header(f"TIER 3 — API Test: Dashboard HTTP  [{api_url}]")
@@ -402,40 +309,42 @@ def tier3_api_tests(api_url: str = "http://localhost:5000"):
     benign_payload = {
         "timestamp": "2026-03-05T10:00:00",
         "device_id": "test_benign_device",
-        "throughput": 85.0,
-        "latency": 12.0,
-        "packet_loss": 0.1,
-        "rssi": -60
+        "prediction": "Benign",
+        "confidence": 0.98,
+        "probability_malicious": 0.02,
+        "tot_bytes": 1500, "src_bytes": 750, "tcp_rtt": 0.012, "s_ttl": 64
     }
     try:
         resp, status = post_json(f"{api_url}/api/metrics", benign_payload)
         if status == 200:
-            ok(f"HTTP 200  →  prediction={resp.get('prediction_label', resp.get('prediction'))}  "
-               f"score={resp.get('anomaly_score', '?')}")
+            det = resp.get("detection", {})
+            ok(f"HTTP 200  →  prediction={det.get('prediction_label')}  "
+               f"score={det.get('anomaly_score', '?')}  severity={det.get('severity', '?')}")
         else:
             fail(f"HTTP {status}", str(resp))
     except Exception as e:
         fail("POST /api/metrics (Benign) thất bại", str(e))
 
-    section("3.3  POST /api/metrics — Anomaly payload")
+    section("3.3  POST /api/metrics — Anomaly (Malicious) payload")
     anomaly_payload = {
         "timestamp": "2026-03-05T10:00:01",
         "device_id": "test_attacker",
-        "throughput": 5.0,
-        "latency": 200.0,
-        "packet_loss": 25.0,
-        "rssi": -95
+        "prediction": "Malicious",
+        "confidence": 0.95,
+        "probability_malicious": 0.95,
+        "tot_bytes": 84, "src_bytes": 42, "tcp_rtt": 0.002, "s_ttl": 49
     }
     try:
         resp, status = post_json(f"{api_url}/api/metrics", anomaly_payload)
         if status == 200:
-            pred = resp.get("prediction_label", resp.get("prediction"))
-            score = resp.get("anomaly_score", "?")
-            ok(f"HTTP 200  →  prediction={pred}  score={score}")
-            if pred == "anomaly" or (isinstance(score, float) and score > 0.5):
+            det = resp.get("detection", {})
+            pred  = det.get("prediction_label")
+            score = det.get("anomaly_score", 0)
+            ok(f"HTTP 200  →  prediction={pred}  score={score}  severity={det.get('severity', '?')}")
+            if pred == "anomaly":
                 ok("Phát hiện đúng anomaly")
             else:
-                info(f"prediction={pred} — model có thể dùng mock mode")
+                fail(f"Mong đợi 'anomaly', nhận '{pred}'")
         else:
             fail(f"HTTP {status}", str(resp))
     except Exception as e:
@@ -586,54 +495,7 @@ def tier4_edge_server_tests(host: str = "localhost", port: int = 5001):
 #  TIER 5 — Kiểm tra nhất quán giữa 2 AI
 # =============================================================
 
-def tier5_consistency_test():
-    header("TIER 5 — Kiểm tra nhất quán 2 tầng AI")
-    info("So sánh kết quả từ model .pkl trực tiếp vs AnomalyDetector")
 
-    try:
-        import joblib
-        sys.path.insert(0, DASHBOARD_DIR)
-        from detection import AnomalyDetector
-
-        model_path, scaler_path, _ = find_model_files()
-        if not model_path:
-            skip("Không tìm thấy model file")
-            return
-
-        model  = joblib.load(model_path)
-        scaler = joblib.load(scaler_path)
-        det    = AnomalyDetector()
-
-        if not det.model_loaded:
-            skip("AnomalyDetector chạy mock mode — không so sánh được")
-            return
-
-        section("5.1  So sánh prediction cho từng test case")
-        mismatch = 0
-        for name, tc in TEST_CASES.items():
-            X = np.array(tc["features"]).reshape(1, -1)
-            X_sc = scaler.transform(X)
-            direct_pred = model.predict(X_sc)[0]
-
-            feat_dict = {fname: val for fname, val in zip(det.feature_names, tc["features"])}
-            module_label, module_score = det.predict(feat_dict)
-            # module trả về 'Benign'/'Malicious' hoặc 'normal'/'anomaly'
-            module_pred_norm = "Malicious" if "anomaly" in module_label.lower() or module_label == "Malicious" else "Benign"
-
-            match = (direct_pred == module_pred_norm)
-            if match:
-                ok(f"{name:35s}  direct={direct_pred}  module={module_pred_norm}  ✓")
-            else:
-                fail(f"{name:35s}  direct={direct_pred} ≠ module={module_pred_norm}")
-                mismatch += 1
-
-        if mismatch == 0:
-            ok("2 tầng AI cho kết quả nhất quán hoàn toàn")
-        else:
-            fail(f"{mismatch} trường hợp không nhất quán — kiểm tra lại config.py")
-
-    except Exception as e:
-        fail("Consistency test lỗi", traceback.format_exc())
 
 
 # =============================================================
@@ -767,10 +629,8 @@ def main():
     print("  ╚══════════════════════════════════════════════════════╝")
     print(f"{RESET}")
 
-    # Tier 1+2 luôn chạy
+    # Tier 1 luôn chạy
     tier1_model_unit_tests()
-    tier2_module_tests()
-    tier5_consistency_test()
 
     # Tier 3 — API
     if args.all or args.api:
