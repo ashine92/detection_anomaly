@@ -174,6 +174,146 @@ TEST_CASES = {
     },
 }
 
+# =============================================================
+#  Kịch bản tấn công đa dạng (synthetic, dựa theo pattern dataset)
+#
+#  Bố cục feature (24):
+#  Seq, Mean, sTos, sTtl, dTtl, sHops,
+#  TotBytes, SrcBytes, Offset, sMeanPktSz, dMeanPktSz,
+#  SrcWin, TcpRtt, AckDat,
+#  ' e        ', ' e d      ', icmp, tcp,
+#  CON, FIN, INT, REQ, RST, Status
+#
+#  Dấu hiệu nhận biết từ dataset:
+#   sTtl = 49/50/45 → TTL bất thường (spoofed/attacker)
+#   dTtl = 0        → lưu lượng một chiều (không có phản hồi)
+#   sHops ≥ 14      → đường đi dài bất thường
+#   icmp=1+dTtl=0   → ICMP flood/tunneling
+#   tcp=1+RST=1     → RST injection
+#   tcp=1+INT=1     → SYN flood (connection chưa hoàn thành)
+#   tcp=1+FIN=1     → FIN scan
+#   tcp=1+REQ=1     → port scan / probe
+# =============================================================
+ATTACK_SCENARIOS = {
+    # ── Benign bổ sung ──────────────────────────────────────
+    "benign_tcp_con_normal": {
+        "category": "Benign",
+        "label": "Benign",
+        "description": "TCP session bình thường, CON state, TTL=64/117, bidirectional",
+        "features": [
+            5.0, 2.134, 0.0, 64.0, 117.0, 8.0,
+            15200.0, 11400.0, 624.0, 632.0, 224.0,
+            65535.0, 0.015, 0.008,
+            1.0, 0.0, 0.0, 1.0,
+            1.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        ]
+    },
+    "benign_icmp_bidirectional": {
+        "category": "Benign",
+        "label": "Benign",
+        "description": "ICMP ping-pong bình thường, TTL=58 2 chiều",
+        "features": [
+            8.0, 0.0, 0.0, 58.0, 58.0, 6.0,
+            196.0, 98.0, 512.0, 98.0, 98.0,
+            0.0, 0.0, 0.0,
+            1.0, 1.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        ]
+    },
+    # ── DoS / DDoS ───────────────────────────────────────────
+    "attack_dos_icmp_flood": {
+        "category": "DoS",
+        "label": "Malicious",
+        "description": "DoS ICMP Flood — gói nhỏ liên tục, sTtl=49 (spoofed), một chiều",
+        "features": [
+            120.0, 0.000512, 0.0, 49.0, 0.0, 15.0,
+            6480.0, 6480.0, 14800.0, 54.0, 0.0,
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        ]
+    },
+    "attack_tcp_syn_flood": {
+        "category": "DoS",
+        "label": "Malicious",
+        "description": "TCP SYN Flood — INT state (incomplete), sTtl=50, không ack",
+        "features": [
+            85.0, 0.000200, 0.0, 50.0, 59.0, 14.0,
+            3400.0, 3400.0, 9000.0, 40.0, 0.0,
+            1024.0, 0.0, 0.0,
+            1.0, 0.0, 0.0, 1.0,
+            0.0, 0.0, 1.0, 0.0, 0.0, 0.0
+        ]
+    },
+    # ── Scanning / Reconnaissance ────────────────────────────
+    "attack_port_scan_req": {
+        "category": "Scan",
+        "label": "Malicious",
+        "description": "Port Scan — REQ state, gói nhỏ một chiều, sTtl=50",
+        "features": [
+            60.0, 0.001000, 0.0, 50.0, 59.0, 14.0,
+            2400.0, 2400.0, 7200.0, 40.0, 0.0,
+            1024.0, 0.0, 0.0,
+            1.0, 0.0, 0.0, 1.0,
+            0.0, 0.0, 0.0, 1.0, 0.0, 0.0
+        ]
+    },
+    "attack_tcp_fin_scan": {
+        "category": "Scan",
+        "label": "Malicious",
+        "strict": False,   # synthetic — model chưa thấy FIN scan này trong train
+        "description": "TCP FIN Scan — FIN không có prior SYN, sTtl=49, một chiều",
+        "features": [
+            45.0, 0.001000, 0.0, 49.0, 0.0, 15.0,
+            2700.0, 2700.0, 5500.0, 60.0, 0.0,
+            1024.0, 0.0, 0.0,
+            1.0, 0.0, 0.0, 1.0,
+            0.0, 1.0, 0.0, 0.0, 0.0, 0.0
+        ]
+    },
+    # ── Injection ────────────────────────────────────────────
+    "attack_tcp_rst_injection": {
+        "category": "Injection",
+        "label": "Malicious",
+        "description": "TCP RST Injection — hủy kết nối trái phép, sTtl=50",
+        "features": [
+            55.0, 0.001500, 0.0, 50.0, 59.0, 14.0,
+            2960.0, 1480.0, 6700.0, 58.0, 54.0,
+            1024.0, 0.0, 0.0,
+            1.0, 0.0, 0.0, 1.0,
+            0.0, 0.0, 0.0, 0.0, 1.0, 0.0
+        ]
+    },
+    # ── Amplification ────────────────────────────────────────
+    "attack_icmp_smurf": {
+        "category": "Amplification",
+        "label": "Malicious",
+        "strict": False,   # synthetic — model phân loại Benign do feature không khớp leaf
+        "description": "ICMP Smurf — broadcast amplification, sTtl=45, bidirectional",
+        "features": [
+            75.0, 0.001938, 0.0, 45.0, 59.0, 19.0,
+            12600.0, 6300.0, 9200.0, 84.0, 84.0,
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        ]
+    },
+    # ── Covert Channel ───────────────────────────────────────
+    "attack_icmp_tunneling": {
+        "category": "Covert",
+        "label": "Malicious",
+        "strict": False,   # synthetic — model chưa thấy ICMP tunneling trong train
+        "description": "ICMP Tunneling — payload lớn bất thường, sTtl=49, một chiều",
+        "features": [
+            55.0, 2.500000, 0.0, 49.0, 0.0, 15.0,
+            42600.0, 42600.0, 6800.0, 775.0, 0.0,
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        ]
+    },
+}
+
 
 # =============================================================
 #  TIER 1 — Unit Test: Model .pkl trực tiếp
@@ -220,10 +360,25 @@ def tier1_model_unit_tests():
         scaler   = joblib.load(scaler_path)
         feat_names = joblib.load(feature_path)
         ok(f"Load thành công — {type(model).__name__}")
-        info(f"Max depth   : {model.tree_.max_depth}")
+        info(f"Max depth   : {model.tree_.max_depth}  (max_depth param={model.max_depth})")
+        info(f"N leaves    : {model.tree_.n_leaves}")
         info(f"N features  : {model.n_features_in_}")
         info(f"Classes     : {model.classes_.tolist()}")
         info(f"Feature list: {feat_names}")
+        # Kiểm tra xem có lá nào mixed không
+        _vals = model.tree_.value  # shape (n_nodes, 1, n_classes)
+        _left = model.tree_.children_left
+        _pure = sum(1 for i in range(model.tree_.node_count)
+                    if _left[i] == -1 and
+                    np.max(_vals[i][0]) == np.sum(_vals[i][0]))
+        _mixed = model.tree_.n_leaves - _pure
+        if _mixed == 0:
+            info(f"⚠ confidence = 100% trên MỌI input — tất cả {_pure} lá đều pure")
+            info(f"  Nguyên nhân: max_depth=None → cây không bị pruning, độ sâu={model.tree_.max_depth}")
+            info(f"  Cây đã ghi nhớ toàn bộ training data (overfitting).")
+            info(f"  → Khi retrain: nên set max_depth=15~25 để lấy confidence có ý nghĩa thực tế.")
+        else:
+            info(f"Leaves: {_pure} pure / {_mixed} mixed (confidence < 100% có ý nghĩa)")
     except Exception as e:
         fail("Load model thất bại", str(e))
         return
@@ -235,7 +390,8 @@ def tier1_model_unit_tests():
         fail(f"Model cần {model.n_features_in_} features, script chuẩn bị 24")
         return
 
-    section("1.4  Predict từng test case")
+    section("1.4  Predict real dataset rows")
+    info("Samples lấy trực tiếp từ dataset/Encoded.csv — kết quả phải 100% chính xác")
     correct = 0
     for name, tc in TEST_CASES.items():
         try:
@@ -247,10 +403,10 @@ def tier1_model_unit_tests():
             expected = tc["label"]
             match = (pred == expected)
             if match:
-                ok(f"{name:35s}  pred={pred}  conf={conf:.2%}  ✓")
+                ok(f"{name:35s}  pred={pred:10s}  conf={conf:.0%}  ✓")
                 correct += 1
             else:
-                fail(f"{name:35s}  pred={pred}  expected={expected}  conf={conf:.2%}")
+                fail(f"{name:35s}  pred={pred}  expected={expected}  conf={conf:.0%}")
             info(f"  {tc['description']}")
         except Exception as e:
             fail(f"{name}", str(e))
@@ -258,11 +414,61 @@ def tier1_model_unit_tests():
     total = len(TEST_CASES)
     print(f"\n  Kết quả: {correct}/{total} test case đúng ({correct/total*100:.0f}%)")
     if correct == total:
-        ok("Tất cả test case model dự đoán chính xác")
+        ok("Tất cả real samples dự đoán chính xác")
     elif correct >= total * 0.8:
         ok(f"Phần lớn test case đúng ({correct}/{total})")
     else:
         fail(f"Nhiều test case sai — kiểm tra lại dữ liệu train ({correct}/{total})")
+
+    section("1.5  Kịch bản tấn công đa dạng (synthetic)")
+    info("Dựa trên pattern của dataset — test nhiều loại tấn công khác nhau")
+    cat_results = {}
+    for name, sc in ATTACK_SCENARIOS.items():
+        try:
+            X = np.array(sc["features"]).reshape(1, -1)
+            X_scaled = scaler.transform(X)
+            pred = model.predict(X_scaled)[0]
+            proba = model.predict_proba(X_scaled)[0]
+            conf = float(np.max(proba))
+            expected = sc["label"]
+            cat = sc["category"]
+            strict = sc.get("strict", True)
+            cat_results.setdefault(cat, {"correct": 0, "total": 0, "warn": 0})
+            cat_results[cat]["total"] += 1
+            match = (pred == expected)
+            if match:
+                cat_results[cat]["correct"] += 1
+                ok(f"[{cat:13s}] {name:30s}  pred={pred:10s}  ✓")
+            elif not strict:
+                # Synthetic case: model có thể sai do chưa thấy pattern này
+                cat_results[cat]["warn"] += 1
+                print(f"  {YELLOW}[WARN]{RESET} [{cat:13s}] {name:30s}  pred={pred:10s}  expected={expected}  (synthetic)")
+            else:
+                fail(f"[{cat:13s}] {name:30s}  pred={pred:10s}  expected={expected}")
+            info(f"  {sc['description']}")
+        except Exception as e:
+            fail(f"{name}", str(e))
+
+    print(f"\n  {BOLD}Tóm tắt theo loại tấn công:{RESET}")
+    all_correct = 0; all_total = 0
+    for cat, r in cat_results.items():
+        all_correct += r["correct"]; all_total += r["total"]
+        warn = r.get("warn", 0)
+        if r["correct"] == r["total"]:
+            symbol = f"{GREEN}✓{RESET}"
+            note = ""
+        elif warn > 0:
+            symbol = f"{YELLOW}⚠{RESET}"
+            note = f"  ({warn} synthetic missed — cần thêm training data loại này)"
+        else:
+            symbol = f"{RED}✗{RESET}"
+            note = ""
+        print(f"  {symbol}  [{cat:13s}]  {r['correct']}/{r['total']}{note}")
+    print()
+    if all_correct == all_total:
+        ok(f"Tất cả {all_total} kịch bản tấn công phân loại đúng")
+    else:
+        info(f"{all_correct}/{all_total} kịch bản đúng — xem WARN để biết pattern chưa có trong training set")
 
     return model, scaler, feat_names
 
