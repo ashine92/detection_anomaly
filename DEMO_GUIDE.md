@@ -107,51 +107,67 @@ mininet-wifi>
 
 ## Demo Scenarios
 
-Trong Mininet CLI, chạy các lệnh sau và xem dashboard cập nhật real-time:
+Stations bắt đầu ở trạng thái **PAUSED** - dashboard sẽ trống.
+
+Để bắt đầu gửi dữ liệu, từ **Mininet CLI** gửi lệnh trigger:
 
 ### Scenario 1: Normal Traffic
 
 ```bash
-mininet-wifi> sta1 ping -c 5 edge1
+# Start sta1
+mininet-wifi> sta1 touch /tmp/sta1_running
+
+# Hoặc run sau này trong Mininet CLI (xem /tmp/sta1.log từng dòng):
+mininet-wifi> sta1 tail /tmp/sta1.log
+
+# Nếu muốn dừng lại:
+mininet-wifi> sta1 rm /tmp/sta1_running
 ```
 
 **Dashboard hiển thị:**
-- Status: ✓ Normal
-- Attack Type: ✓ Normal 
-- Anomaly Score: 0.1 - 0.3 (low)
+- ✓ Normal traffic (benign)
+- Anomaly Score: 0.1 - 0.3 (low risk)
 
 ### Scenario 2: ICMP Flood Attack
 
 ```bash
-mininet-wifi> sta2 timeout 10 ping -i 0.01 -s 100 edge1
+# Start sta2 (có 15% xác suất tấn công)
+mininet-wifi> sta2 touch /tmp/sta2_running
+
+# Monitor attack
+mininet-wifi> sta2 tail /tmp/sta2.log
 ```
 
 **Dashboard hiển thị:**
-- Status: 🔴 Anomaly
+- 🔴 Anomaly detected
 - Attack Type: 🌊 ICMP Flood (88% confidence)
 - Anomaly Score: 0.90 - 0.98 (critical)
 
-### Scenario 3: TCP Port Scan
+### Scenario 3: Port Scan
 
 ```bash
-mininet-wifi> sta1 timeout 5 hping3 -S edge1
+# Dừng sta2, bắt đầu sta1 với anomaly tinggi
+mininet-wifi> sta2 rm /tmp/sta2_running
+
+# Hoặc tạo manual attack flow từ sta1
+mininet-wifi> sta1 touch /tmp/sta1_running
 ```
 
 **Dashboard hiển thị:**
-- Status: 🔴 Anomaly
 - Attack Type: 🔍 Port Scan (88-90% confidence)
-- Anomaly Score: 0.85 - 0.95
 
-### Scenario 4: TCP SYN Flood
+### Scenario 4: Start/Stop Multiple
 
 ```bash
-mininet-wifi> sta1 timeout 5 hping3 -S --flood edge1
-```
+# Bắt đầu cả hai
+mininet-wifi> sta1 touch /tmp/sta1_running && sta2 touch /tmp/sta2_running
 
-**Dashboard hiển thị:**
-- Status: 🔴 Anomaly
-- Attack Type: ⚡ SYN Flood (85% confidence)
-- Anomaly Score: 0.88 - 0.95
+# Dừng tất cả
+mininet-wifi> sta1 rm /tmp/sta1_running && sta2 rm /tmp/sta2_running
+
+# Bắt đầu lại
+mininet-wifi> sta1 touch /tmp/sta1_running && sta2 touch /tmp/sta2_running
+```
 
 ---
 
@@ -225,39 +241,77 @@ Network topology aggregation:
    - Resolution: 1920x1080 or higher
    - Zoom: 100%
 
-3. **Terminal Font**
-   - Use large font (12-14pt) for readability
+3. **Dashboard will be EMPTY initially** - stations are in PAUSED state
 
 ### During Demo
 
-1. **Watch Dashboard Update**
-   - Charts should update every 2 seconds
-   - Anomaly events table shows new rows as attacks happen
-   - Attack Type column shows heuristic classification
+**Stations start PAUSED!** Dashboard is clean unless you manually trigger.
 
-2. **Mininet CLI Commands**
-   - After running attack, dashboard should show anomaly spike within 2 seconds
-   - Check edge server logs in Terminal 3 for real-time predictions
+**To START sending data** from Mininet CLI:
+```bash
+mininet-wifi> sta1 touch /tmp/sta1_running
+mininet-wifi> sta2 touch /tmp/sta2_running
+```
 
-3. **Flow**
-   - Start with normal traffic (builds confidence)
-   - Then show attacks progressively (Normal → ICMP → Port Scan → SYN Flood)
-   - Highlight real-time detection
+**To STOP sending data:**
+```bash
+mininet-wifi> sta1 rm /tmp/sta1_running
+mininet-wifi> sta2 rm /tmp/sta2_running
+```
+
+**Watch the updates:**
+- Dashboard charts update with new data every 2 seconds
+- Edge server logs show predictions in real-time
+- Station logs show packet transmission details
+
+### Demo Flow Example
+
+```bash
+# 1. Setup
+cd /home/ashine/Downloads/detection_anomaly/dashboard/backend
+python3 app.py
+
+# 2. In another terminal
+cd /home/ashine/Downloads/detection_anomaly/system_detection
+sudo python3 5g_iot_mininet.py
+
+# 3. When Mininet CLI appears, do demo:
+mininet-wifi> sta1 touch /tmp/sta1_running      # Start sta1 (normal data)
+mininet-wifi> sta1 tail /tmp/sta1.log            # Watch logs
+# [wait 10 seconds for dashboard to populate]
+
+mininet-wifi> sta1 rm /tmp/sta1_running          # Stop sta1
+
+mininet-wifi> sta2 touch /tmp/sta2_running       # Start sta2 (with anomalies)
+mininet-wifi> sta2 tail /tmp/sta2.log
+# [wait for anoma detected]
+
+mininet-wifi> sta2 rm /tmp/sta2_running          # Stop sta2
+
+mininet-wifi> exit                               # Exit CLI
+```
 
 ### Demo Duration
 
 - Setup: 5 min
 - Mininet startup: 2 min
-- 4 scenarios: 1-2 min each (4-8 min total)
-- Dashboard overview: 5 min
-- **Total: ~20-25 minutes**
+- 2-3 scenarios (controlled): 3-5 min each (6-15 min total)
+- Dashboard overview: 3-5 min
+- **Total: ~20-30 minutes** (much easier to control!)
 
-### Backup Plans
+### Easy Controls from CLI
 
-If anything fails:
-1. Pre-record 2-min video of each scenario
-2. Have pre-populated database JSON
-3. Screenshot of expected dashboard state
+| Action | Command |
+|--------|---------|
+| Start sta1 | `sta1 touch /tmp/sta1_running` |
+| Stop sta1 | `sta1 rm /tmp/sta1_running` |
+| Start sta2 | `sta2 touch /tmp/sta2_running` |
+| Stop sta2 | `sta2 rm /tmp/sta2_running` |
+| Start ALL | `sta1 touch /tmp/sta1_running && sta2 touch /tmp/sta2_running` |
+| Stop ALL | `sta1 rm /tmp/sta1_running && sta2 rm /tmp/sta2_running` |
+| Watch sta1 logs | `sta1 tail -f /tmp/sta1.log` |
+| Watch sta2 logs | `sta2 tail -f /tmp/sta2.log` |
+| Watch edge logs | `edge1 tail -f /tmp/edge_server.log` |
 
 ---
 

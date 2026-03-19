@@ -263,51 +263,82 @@ class IoTSensorStation:
         except Exception as e:
             return {'error': str(e)}
     
-    def run(self, interval=2, anomaly_rate=0.2):
+    def run(self, interval=2, anomaly_rate=0.2, paused=False):
         """
-        Chạy station - liên tục gửi dữ liệu
+        Chạy station - gửi dữ liệu hoặc pause
         interval: giây giữa mỗi lần gửi
         anomaly_rate: tỷ lệ tạo dữ liệu bất thường (0-1)
+        paused: bắt đầu ở trạng thái paused
+        
+        DEMO CONTROL:
+        - File trigger: /tmp/{device_id}_running
+        - Tạo file để bắt đầu: touch /tmp/{device_id}_running
+        - Xóa file để dừng:    rm /tmp/{device_id}_running
         """
         print("="*70)
         print(f"IoT SENSOR STATION: {self.device_id}")
         print("="*70)
         print(f"Edge Server: {self.edge_ip}:{self.edge_port}")
-        print(f"Sending data every {interval} seconds")
+        print(f"Sending interval: {interval} seconds")
         print(f"Anomaly rate: {anomaly_rate*100}%")
+        print(f"Status: {'⏸️  PAUSED (waiting for trigger)' if paused else '▶️  RUNNING'}")
+        print()
+        print("DEMO CONTROL (from Mininet CLI):")
+        print(f"  To START:   sta1 touch /tmp/{self.device_id}_running")
+        print(f"  To STOP:    sta1 rm /tmp/{self.device_id}_running")
         print("="*70)
         print()
         
+        control_file = f'/tmp/{self.device_id}_running'
         packet_count = 0
+        is_running = not paused
+        
+        # Nếu bắt đầu ở paused, xóa file control
+        if paused and os.path.exists(control_file):
+            os.remove(control_file)
         
         try:
             while True:
-                packet_count += 1
+                # Kiểm tra file trigger để pause/resume
+                file_exists = os.path.exists(control_file)
                 
-                # Quyết định gửi dữ liệu bình thường hay bất thường
-                is_anomaly = random.random() < anomaly_rate
-                features = self.generate_sensor_data(anomaly=is_anomaly)
+                if file_exists != is_running:
+                    is_running = file_exists
+                    if is_running:
+                        print(f"[{datetime.now()}] ▶️  RESUMED - Starting to send data")
+                    else:
+                        print(f"[{datetime.now()}] ⏸️  PAUSED - Waiting for trigger file")
                 
-                print(f"[{datetime.now()}] Packet #{packet_count} - ", end='')
-                if is_anomaly:
-                    print("⚠️  ANOMALY DATA", end=' ')
+                if is_running:
+                    packet_count += 1
+                    
+                    # Quyết định gửi dữ liệu bình thường hay bất thường
+                    is_anomaly = random.random() < anomaly_rate
+                    features = self.generate_sensor_data(anomaly=is_anomaly)
+                    
+                    print(f"[{datetime.now()}] Packet #{packet_count} - ", end='')
+                    if is_anomaly:
+                        print("⚠️  ANOMALY DATA", end=' ')
+                    else:
+                        print("✓ NORMAL DATA", end=' ')
+                    
+                    # Gửi dữ liệu
+                    result = self.send_data(features)
+                    
+                    if 'error' in result:
+                        print(f"→ ERROR: {result['error']}")
+                    else:
+                        pred = result['prediction']
+                        conf = result['confidence']
+                        winfo = result.get('wireless_echo', {})
+                        sig = winfo.get('signal_dbm')
+                        sig_str = f"  sig={sig}dBm" if sig is not None else ""
+                        print(f"→ Edge: {pred} ({conf*100:.1f}%){sig_str}")
+                    
+                    time.sleep(interval)
                 else:
-                    print("✓ NORMAL DATA", end=' ')
-                
-                # Gửi dữ liệu
-                result = self.send_data(features)
-                
-                if 'error' in result:
-                    print(f"→ ERROR: {result['error']}")
-                else:
-                    pred = result['prediction']
-                    conf = result['confidence']
-                    winfo = result.get('wireless_echo', {})
-                    sig = winfo.get('signal_dbm')
-                    sig_str = f"  sig={sig}dBm" if sig is not None else ""
-                    print(f"→ Edge: {pred} ({conf*100:.1f}%){sig_str}")
-                
-                time.sleep(interval)
+                    # Pause mode - chỉ check file
+                    time.sleep(0.5)
                 
         except KeyboardInterrupt:
             print(f"\n\nStation stopped. Total packets sent: {packet_count}")
@@ -316,17 +347,22 @@ if __name__ == '__main__':
     import sys
     
     if len(sys.argv) < 2:
-        print("Usage: python3 iot_station.py <device_id> [interval] [anomaly_rate] [edge_ip] [edge_port]")
+        print("Usage: python3 iot_station.py <device_id> [interval] [anomaly_rate] [edge_ip] [edge_port] [--paused]")
         print("\nExamples:")
         print("  python3 iot_station.py sta1")
         print("  python3 iot_station.py sta1 2 0.2")
         print("  python3 iot_station.py sta1 2 0.2 localhost 5001")
         print("  python3 iot_station.py sta1 2 0.2 10.0.0.100 5001  # For Mininet")
+        print("  python3 iot_station.py sta1 2 0.2 10.0.0.100 5001 --paused  # Demo mode (paused)")
         print("\nDefaults:")
         print("  interval: 2.0 seconds")
         print("  anomaly_rate: 0.1 (10%)")
         print("  edge_ip: localhost")
         print("  edge_port: 5001")
+        print("  paused: False (start running immediately)")
+        print("\nDEMO CONTROL (file-based):")
+        print("  To START:   touch /tmp/{device_id}_running")
+        print("  To STOP:    rm /tmp/{device_id}_running")
         sys.exit(1)
     
     device_id = sys.argv[1]
@@ -334,6 +370,7 @@ if __name__ == '__main__':
     anomaly_rate = float(sys.argv[3]) if len(sys.argv) > 3 else 0.2
     edge_ip = sys.argv[4] if len(sys.argv) > 4 else 'localhost'
     edge_port = int(sys.argv[5]) if len(sys.argv) > 5 else 5001
+    paused = '--paused' in sys.argv
     
     station = IoTSensorStation(device_id, edge_ip=edge_ip, edge_port=edge_port)
-    station.run(interval, anomaly_rate)
+    station.run(interval, anomaly_rate, paused=paused)
