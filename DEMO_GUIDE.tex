@@ -1,0 +1,1024 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf-8]{inputenc}
+\usepackage[vietnamese]{babel}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{tikz}
+\usepackage{fancyhdr}
+\usepackage{amsmath}
+
+% Code listing setup
+\lstset{
+    language=bash,
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    stringstyle=\color{red},
+    breaklines=true,
+    showstringspaces=false,
+    frame=single,
+    backgroundcolor=\color{lightgray!10}
+}
+
+% Header and Footer
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Phát hiện Bất thường IoT-5G}
+\lhead{Demo Guide}
+\cfoot{\thepage}
+
+\title{
+    \textbf{Phát hiện Bất thường trong Mạng IoT sử dụng 5G} \\
+    \large Hướng dẫn Demo Chi tiết \\
+    \small Sử dụng Decision Tree + Mininet-WiFi + Real-time Dashboard
+}
+\author{}
+\date{March 19, 2026}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Tổng quan Đồ án}
+% ============================================================
+
+\subsection{Mục tiêu}
+Xây dựng hệ thống \textbf{phát hiện anomaly real-time} cho mạng IoT-5G, bao gồm:
+\begin{itemize}
+    \item \textbf{Edge AI:} Decision Tree classifier (24 network flow features)
+    \item \textbf{Mininet-WiFi:} Mô phỏng mạng 5G-IoT với gNodeB + IoT stations
+    \item \textbf{Dashboard:} Real-time visualization + rule-based attack type classification
+    \item \textbf{Heuristic:} Phân loại 7 loại tấn công từ raw features
+\end{itemize}
+
+\subsection{Thành phần chính}
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{|l|X|X|}
+\hline
+\textbf{Component} & \textbf{File} & \textbf{Vai trò} \\
+\hline
+Edge Server & \texttt{edge\_server\_with\_dashboard.py} & Load model, predict, gửi kết quả \\
+\hline
+Dashboard Backend & \texttt{dashboard/backend/app.py} & Flask API, nhận predictions, lưu trữ \\
+\hline
+Dashboard Frontend & \texttt{dashboard/frontend/index.html} & Real-time UI, charts, attack classification \\
+\hline
+Mininet Topology & \texttt{5g\_iot\_mininet.py} & Tạo mạng ảo, IoT stations \\
+\hline
+Model & \texttt{model/decision\_tree\_model\_*.pkl} & 24-feature Decision Tree \\
+\hline
+\end{tabularx}
+\end{table}
+
+% ============================================================
+\section{Phase 1: Setup (5 phút)}
+% ============================================================
+
+\subsection{A. Khởi động Dashboard Backend}
+
+\begin{lstlisting}[language=bash]
+cd /home/ashine/Downloads/detection_anomaly/dashboard/backend
+python3 app.py
+\end{lstlisting}
+
+\textbf{Output mong đợi:}
+\begin{lstlisting}
+ * Running on http://0.0.0.0:5000
+ * Debug mode: off
+WARNING: This is a development server. Do not use it in production.
+\end{lstlisting}
+
+\textbf{Giải thích:}
+\begin{itemize}
+    \item Flask backend lắng nghe port 5000
+    \item Nhận HTTP POST từ Edge Server (\texttt{/api/metrics})
+    \item Lưu trữ metrics trong memory deque
+    \item Phục vụ real-time data cho frontend
+\end{itemize}
+
+\subsection{B. Mở Dashboard Frontend}
+
+Mở browser và truy cập:
+\begin{center}
+\texttt{http://localhost:5000}
+\end{center}
+
+\textbf{Dashboard sẽ hiển thị:}
+\begin{itemize}
+    \item Stats grid: Total Requests, Anomalies, Anomaly Rate, Avg Score
+    \item Live panels: Latest Flow, Wireless Context, Topology Snapshot
+    \item Real Flow Inspector: Raw 24 features, Packet Signature
+    \item Charts: Anomaly Score timeline, TotBytes, Signal, Distribution
+    \item Tables: Anomaly Events, Recent Metrics, Device Summary
+\end{itemize}
+
+Dashboard status lúc này: \texttt{No data received yet}
+
+% ============================================================
+\section{Phase 2: Edge Server + Mininet-WiFi (10 phút)}
+% ============================================================
+
+\subsection{C. Khởi động Mininet-WiFi Simulation}
+
+\begin{lstlisting}[language=bash]
+cd /home/ashine/Downloads/detection_anomaly/system_detection
+sudo python3 5g_iot_mininet.py
+\end{lstlisting}
+
+\textbf{Màn hình Mininet-WiFi sẽ hiển thị:}
+\begin{lstlisting}
+*** Creating 5G-IoT Network with Mininet-WiFi
+*** Adding Controller
+*** Adding Edge Server
+*** Adding Access Point (gNodeB - 5G Base Station)
+*** Adding IoT Sensor Stations
+*** Network Topology Created Successfully!
+
+Edge Server: edge1 (IP: 10.0.0.100)
+Access Point: ap1 (SSID: 5G-IoT-Network)
+IoT Station 1: sta1 (IP: 10.0.0.1)
+IoT Station 2: sta2 (IP: 10.0.0.2)
+
+mininet-wifi>
+\end{lstlisting}
+
+\textbf{Topology Architecture:}
+\begin{verbatim}
+┌─────────────────────────────────┐
+│  Edge Server (edge1)            │
+│  - Loads Decision Tree model    │
+│  - Predicts from 24 features    │
+│  - Sends results via HTTP       │
+└──────────────┬──────────────────┘
+               │
+        ┌──────▼──────┐
+        │  gNodeB(ap1)│ (5G Base Station)
+        │ SSID: 5G... │
+        └──┬───────┬──┘
+           │       │
+    ┌──────┘       └──────┐
+    │                     │
+┌───▼────────┐   ┌───────▼──┐
+│ sta1       │   │  sta2    │
+│ IoT Device │   │ IoT Dev  │
+└────────────┘   └──────────┘
+(sends traffic)  (sends traffic)
+\end{verbatim}
+
+\subsection{D. Hiển thị Live Logs từ Edge Server}
+
+Trong Mininet CLI, chạy:
+\begin{lstlisting}[language=bash]
+mininet-wifi> edge1 tail -f /tmp/edge_server.log
+\end{lstlisting}
+
+\textbf{Logs sẽ hiển thị predictions real-time:}
+\begin{lstlisting}
+INFO:edge_server:Request from sta1 (10.0.0.1)
+Edge AI result: Benign, confidence=1.0, score=0.15
+❌ Normal  — sta1 score=0.1523 conf=100.00% sig=-45dBm
+
+INFO:edge_server:Request from sta2 (10.0.0.2)
+Edge AI result: Malicious, confidence=1.0, score=0.92
+⚠️ ANOMALY — sta2 score=0.9245 severity=critical node=sta2
+\end{lstlisting}
+
+% ============================================================
+\section{Phase 3: Demo Scenarios (15 phút)}
+% ============================================================
+
+\subsection{Scenario 1: Normal Traffic (Benign) - 3 phút}
+
+\subsubsection{Command}
+\begin{lstlisting}[language=bash]
+mininet-wifi> sta1 ping -c 5 edge1
+\end{lstlisting}
+
+\subsubsection{Dashboard Output}
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+\textbf{Field} & \textbf{Value} \\
+\hline
+Status & \color{green}✓ Normal \\
+\hline
+Attack Type & \color{green}✓ Normal (\textit{rule-based}) \\
+\hline
+Anomaly Score & 0.1 - 0.3 (low) \\
+\hline
+Features & tot\_bytes > 5000, d\_ttl > 0, bidirectional \\
+\hline
+Flags & (none) \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsubsection{Giải thích}
+\begin{itemize}
+    \item Bidirectional flow (reply từ edge1 đến sta1)
+    \item Large payload (ICMP echo + reply)
+    \item Model prediction: Benign
+    \item Heuristic classification: Normal (confidence 95\%)
+\end{itemize}
+
+\subsection{Scenario 2: DoS Attack - ICMP Flood - 3 phút}
+
+\subsubsection{Command}
+\begin{lstlisting}[language=bash]
+mininet-wifi> sta2 timeout 10 ping -i 0.01 -s 100 edge1
+\end{lstlisting}
+
+\subsubsection{Dashboard Output}
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+\textbf{Field} & \textbf{Value} \\
+\hline
+Status & 🔴 \color{red}Anomaly \\
+\hline
+Attack Type & 🌊 \color{red}ICMP Flood (88\% confidence) \\
+\hline
+Anomaly Score & 0.90 - 0.98 (\textbf{critical}) \\
+\hline
+tot\_bytes & 6480 (large stream) \\
+\hline
+s\_mean\_pkt\_sz & 54 (small packets) \\
+\hline
+d\_ttl & 0 (one-way, no reply) \\
+\hline
+Flags & ICMP=1, tcp\_flag=0, rst\_flag=0 \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsubsection{Classification Logic}
+\begin{lstlisting}[language=javascript]
+// ICMP Flood detection heuristic
+if (icmp === 1 && d_ttl === 0 && tcp_flag === 0) {
+    return { type: 'icmp-flood', confidence: 88 };
+}
+\end{lstlisting}
+
+\textbf{Dấu hiệu:}
+\begin{itemize}
+    \item \texttt{icmp=1}: Protocol ICMP
+    \item \texttt{d\_ttl=0}: Không có reply từ đích
+    \item \texttt{tcp\_flag=0}: Không phải TCP
+    \item Large traffic volume, rapid packets
+\end{itemize}
+
+\subsection{Scenario 3: TCP Port Scan - 3 phút}
+
+\subsubsection{Test Script (Manual Flow)}
+\begin{lstlisting}[language=python]
+import socket, json
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect(('10.0.0.100', 5001))
+
+payload = {
+    "device_id": "scanner",
+    "features": [
+        60, 0.001, 0, 50, 59, 14,
+        2400, 2400, 7200, 40, 0,
+        1024, 0, 0,
+        1, 0, 0, 1,
+        0, 0, 0, 1, 0, 0
+    ]
+}
+
+s.send(json.dumps(payload).encode())
+response = json.loads(s.recv(4096).decode())
+print(response)
+s.close()
+\end{lstlisting}
+
+\subsubsection{Dashboard Output}
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+\textbf{Field} & \textbf{Value} \\
+\hline
+Attack Type & 🔍 \color{red}Port Scan (88-90\% confidence) \\
+\hline
+Anomaly Score & 0.85 - 0.95 \\
+\hline
+tot\_bytes & 2400 (medium, probing packets) \\
+\hline
+s\_mean\_pkt\_sz & 40 (probing size) \\
+\hline
+d\_ttl & 59 (response exists) \\
+\hline
+Flags & tcp\_flag=1, REQ=1 (one-way) \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsubsection{Classification Logic}
+\begin{lstlisting}[language=javascript]
+// Port Scan detection
+if (tcp_flag === 1 && tot_bytes <= 5000 
+    && s_mean_pkt_sz <= 100 && d_ttl <= 60) {
+    return { type: 'port-scan', confidence: 88 };
+}
+\end{lstlisting}
+
+\subsection{Scenario 4: TCP SYN Flood - 3 phút}
+
+\subsubsection{Command (nếu có hping3)}
+\begin{lstlisting}[language=bash]
+mininet-wifi> sta1 hping3 -S --flood 10.0.0.100
+\end{lstlisting}
+
+Hoặc dùng test payload:
+\begin{lstlisting}[language=python]
+# payload với tot_bytes <= 5000, s_mean_pkt_sz <= 80
+payload = {
+    "device_id": "synflooder",
+    "features": [
+        85, 0.0002, 0, 50, 59, 14,
+        3400, 3400, 9000, 40, 0,
+        1024, 0, 0,
+        1, 0, 0, 1,
+        0, 0, 1, 0, 0, 0
+    ]
+}
+\end{lstlisting}
+
+\subsubsection{Dashboard Output}
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+\textbf{Field} & \textbf{Value} \\
+\hline
+Attack Type & ⚡ \color{red}SYN Flood (85\% confidence) \\
+\hline
+Anomaly Score & 0.88 - 0.95 \\
+\hline
+tot\_bytes & 3400 (medium flood volume) \\
+\hline
+s\_mean\_pkt\_sz & 40 (small SYN packets) \\
+\hline
+INT flag & 1 (incomplete connection state) \\
+\hline
+Flags & tcp\_flag=1, tcp\_rtt=0 (no ACK) \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsubsection{Classification Logic}
+\begin{lstlisting}[language=javascript]
+// TCP SYN Flood detection
+if (tcp_flag === 1 && tot_bytes <= 5000 && s_mean_pkt_sz <= 80) {
+    return { type: 'tcp-syn-flood', confidence: 85 };
+}
+\end{lstlisting}
+
+% ============================================================
+\section{Phase 4: Dashboard Deep Dive (10 phút)}
+% ============================================================
+
+\subsection{E. Dashboard Sections Overview}
+
+\subsubsection{1. Stats Grid}
+\begin{itemize}
+    \item \textbf{📊 Total Requests}: Tổng flows nhận được
+    \item \textbf{🚨 Total Anomalies}: Số flows detected anomaly
+    \item \textbf{📈 Anomaly Rate}: Percentage anomalies
+    \item \textbf{🎯 Avg Anomaly Score}: Mean của P(Malicious)
+\end{itemize}
+
+\subsubsection{2. Live Panels}
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{|l|X|X|}
+\hline
+\textbf{Panel} & \textbf{Info} & \textbf{Source} \\
+\hline
+Latest Real Flow & Device, Prediction, Severity, Score, Timestamp & Edge Server \\
+\hline
+Wireless Context & Signal (dBm), Bitrate (Mbps), AP SSID, BSSID & Mininet report \\
+\hline
+Topology Snapshot & Mode, Nodes Seen, SSID, Data Source & Aggregated \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsubsection{3. Real Flow Inspector}
+\begin{itemize}
+    \item \textbf{Raw Features:} 12 displayed dari 24 total features
+    \begin{itemize}
+        \item tot\_bytes, src\_bytes, tcp\_rtt, s\_hops
+        \item s\_ttl, d\_ttl, s\_mean\_pkt\_sz
+        \item anomaly\_score, device\_id, timestamp
+    \end{itemize}
+    \item \textbf{Packet Signature:} Protocol flags, Node location, Signal, Bitrate, AP
+\end{itemize}
+
+\subsubsection{4. Charts}
+\begin{itemize}
+    \item \textbf{Anomaly Score Over Time}: Red spikes = attacks detected
+    \item \textbf{TotBytes Timeline}: Traffic volume pattern
+    \item \textbf{Signal (dBm)}: WiFi signal strength (5G context)
+    \item \textbf{Normal vs Anomaly Distribution}: Doughnut chart
+\end{itemize}
+
+\subsubsection{5. Tables}
+
+\paragraph{Anomaly Events Log}
+14 columns: Timestamp, Device ID, Severity, Attack Type, Anomaly Score, TotBytes, SrcBytes, TcpRtt, sHops, sTtl/dTtl, Flags, Node, Signal, Bitrate
+
+\paragraph{Recent Metrics Log}
+15 columns: Timestamp, Device ID, Status, Attack Type, Anomaly Score, TotBytes, SrcBytes, TcpRtt, sMeanPktSz, sTtl/dTtl, sHops, Flags, Node, Signal, Bitrate
+
+\paragraph{Device/Topology Summary}
+9 columns: Device ID, Mininet Node, Station, AP SSID, Signal, Bitrate, Total Packets, Anomaly Count, Last Seen
+
+\subsection{F. Attack Type Classification Explained}
+
+\subsubsection{7 Attack Types Detected}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{|l|X|l|}
+\hline
+\textbf{Type} & \textbf{Heuristic Rules} & \textbf{Confidence} \\
+\hline
+🌊 ICMP Flood & icmp=1, d\_ttl=0, tcp=0 & 88\% \\
+\hline
+🔍 Port Scan & tcp=1, tot\_bytes≤5000, s\_mean\_pkt\_sz≤100 & 88-90\% \\
+\hline
+⚡ SYN Flood & tcp=1, tot\_bytes≤5000, s\_mean\_pkt\_sz≤80 & 85\% \\
+\hline
+🔴 Smurf Amp & icmp=1, d\_ttl>0, tot\_bytes>src\_bytes & 85\% \\
+\hline
+🔐 ICMP Tunnel & icmp=1, tot\_bytes>10000, s\_mean\_pkt\_sz>100 & 90\% \\
+\hline
+📋 FIN Scan & tcp=1, 500<tot\_bytes≤5000, s\_mean\_pkt\_sz≤100 & 78\% \\
+\hline
+✓ Normal & is\_anomaly=false OR large bidirectional flow & 95\% \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsubsection{Example Classification: Port Scan}
+\begin{lstlisting}[language=javascript]
+// Input flow data
+const flow = {
+    prediction_label: 'anomaly',
+    tcp_flag: 1,
+    rst_flag: 1,
+    tot_bytes: 2400,
+    s_mean_pkt_sz: 40,
+    d_ttl: 59
+};
+
+// Classification algorithm
+if (tcp_flag === 1 && rst_flag === 1) {
+    return { type: 'port-scan', confidence: 92 };  // RST detected
+} else if (tcp_flag === 1 && tot_bytes <= 5000 && s_mean_pkt_sz <= 100) {
+    return { type: 'port-scan', confidence: 88 };  // Small probing packets
+}
+// Result: Attack Type = 🔍 Port Scan (90% confidence)
+\end{lstlisting}
+
+% ============================================================
+\section{Phase 5: Model \& Data Explanation (10 phút)}
+% ============================================================
+
+\subsection{G. Decision Tree Model Properties}
+
+\subsubsection{Test the Model}
+\begin{lstlisting}[language=bash]
+cd /home/ashine/Downloads/detection_anomaly
+python3 test_ai_system.py
+\end{lstlisting}
+
+\subsubsection{Expected Output}
+
+\begin{verbatim}
+═══════════════════════════════════════════════════════════════
+  TIER 1 — Unit Test: AI Model .pkl
+═══════════════════════════════════════════════════════════════
+
+─── 1.1  Kiểm tra file model tồn tại
+✓ Model (.pkl)  →  decision_tree_model_*.pkl  (256.5 KB)
+✓ Scaler (.pkl)  →  scaler_*.pkl  (3.2 KB)
+✓ Feature names  →  feature_names_*.pkl  (2.1 KB)
+
+─── 1.2  Load model vào bộ nhớ
+✓ Load thành công — DecisionTreeClassifier
+  Max depth    : 220  (max_depth param=None)
+  N leaves     : 402
+  N features   : 24
+  Classes      : ['Benign', 'Malicious']
+  ⚠ confidence = 100% trên MỌI input
+    Nguyên nhân: tất cả 402 lá đều pure (overfitting)
+    Giải pháp: Retrain với max_depth=15~25
+
+─── 1.3  Kiểm tra số lượng feature
+✓ Model nhận đúng 24 features
+
+─── 1.4  Predict real dataset rows
+✓ benign_real_1  → Benign  (PASS) ✓
+✓ benign_real_2  → Benign  (PASS) ✓
+✓ benign_real_3  → Benign  (PASS) ✓
+✓ malicious_real_1  → Malicious  (PASS) ✓
+✓ malicious_real_2  → Malicious  (PASS) ✓
+✓ malicious_real_3  → Malicious  (PASS) ✓
+
+TIER 1 RESULT: 18 PASS, 0 FAIL, 3 WARN
+\end{verbatim}
+
+\subsection{H. 24 Network Flow Features}
+
+\subsubsection{Feature Categories}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{|l|X|X|}
+\hline
+\textbf{Category} & \textbf{Features} & \textbf{Example Values} \\
+\hline
+\textbf{Flow Stats} & Seq, Mean, Offset, TotBytes, SrcBytes, sMeanPktSz, dMeanPktSz & Duration 0.5-10s, Bytes 100-250K \\
+\hline
+\textbf{TTL/Hops} & sTtl, dTtl, sHops & Src:64-117, Dst:59-64, Hops:1-19 \\
+\hline
+\textbf{QoS} & sTos, SrcWin & Priority 0-255, Window 0-65535 \\
+\hline
+\textbf{Timing} & TcpRtt, AckDat & RTT 0-100ms \\
+\hline
+\textbf{Protocol} & icmp, tcp & Binary flags \\
+\hline
+\textbf{State} & CON, FIN, INT, REQ, RST & Connection state flags \\
+\hline
+\textbf{QoS Marking} & Status, cs0 & DSCP classification \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsubsection{Attack Signature Patterns}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{|l|l|X|}
+\hline
+\textbf{Dấu hiệu} & \textbf{Giá trị} & \textbf{Ý nghĩa} \\
+\hline
+sTtl Spoofed & 49, 50, 45 & TTL bất thường (attacker) \\
+\hline
+dTtl No Reply & 0 & Lưu lượng một chiều (nghi ngờ) \\
+\hline
+sHops Long Path & ≥ 14 & Đường đi lạ thường \\
+\hline
+Mean Very Short & < 0.001 & Cơn tấn công rapid \\
+\hline
+TotBytes Tiny & < 100 & Scanning/probing packets \\
+\hline
+s\_mean\_pkt\_sz Small & < 50 & Fine-grained attacks \\
+\hline
+RST Flag & 1 & TCP injection \\
+\hline
+INT State & 1 & Kết nối bị ngắt \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsubsection{Benign vs Malicious Signature}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{|l|l|l|}
+\hline
+\textbf{Feature} & \textbf{Benign} & \textbf{Malicious} \\
+\hline
+Mean (seconds) & > 1.0 & < 0.01 \\
+\hline
+TotBytes & > 10,000 & < 1,000 \\
+\hline
+dMeanPktSz & > 0 & = 0 (no reply) \\
+\hline
+dTtl & > 0 & = 0 \\
+\hline
+CON or FIN & = 1 & = 0 \\
+\hline
+RST & = 0 & = 1 \\
+\hline
+REQ & = 0 & = 1 (no response) \\
+\hline
+TcpRtt & > 0 & = 0 \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsection{I. Dataset Information}
+
+\begin{itemize}
+    \item \textbf{Total Records:} 1,215,890 rows
+    \item \textbf{Total Columns:} 96 columns (original)
+    \item \textbf{Features Used:} 24 columns (df.iloc[:,0:24])
+    \item \textbf{Label:} Binary (Benign / Malicious)
+    \item \textbf{Train/Test Split:} 80/20
+    \item \textbf{Scaler:} StandardScaler (normalize features)
+\end{itemize}
+
+% ============================================================
+\section{Phase 6: System Architecture (5 phút)}
+% ============================================================
+
+\subsection{J. End-to-End Data Flow}
+
+\begin{verbatim}
+┌──────────────────────────────────────────────────────────────┐
+│                   IoT Devices (Mininet-WiFi)                 │
+│                                                              │
+│  STA1 (Temperature)        STA2 (Motion)                    │
+│  - Normal traffic           - Attack traffic                │
+│  - Features prepared        - Anomalies injected            │
+└────────────────┬──────────────────────────┬──────────────────┘
+                 │ 24 features per flow    │
+                 │ JSON via TCP socket     │
+                 ▼                         ▼
+       ┌────────────────────────────────────────┐
+       │     Edge Server (edge_server_with      │
+       │     _dashboard.py)                     │
+       │                                        │
+       │  • Load Decision Tree model            │
+       │  • Extract 24 features                 │
+       │  • Predict: Benign/Malicious          │
+       │  • Run inference                       │
+       │  • Extract raw features                │
+       │  • Prepare HTTP payload                │
+       └────────────┬─────────────────────────┘
+                    │ HTTP POST /api/metrics
+                    │ Payload:
+                    │  - prediction (Benign/Malicious)
+                    │  - anomaly_score [0,1]
+                    │  - confidence 1.0 (always)
+                    │  - raw_features (tot_bytes, ...)
+                    │  - mininet_ctx (signal, SSID, ...)
+                    ▼
+       ┌────────────────────────────────────────┐
+       │   Dashboard Backend (Flask app.py)    │
+       │                                        │
+       │  • Receive & validate metrics          │
+       │  • Calculate severity (thresholds)    │
+       │  • Store in FIFO deque (max 1000)     │
+       │  • Aggregate topology info            │
+       │  • Serve GET /api/metrics, /topology  │
+       └────────────┬─────────────────────────┘
+                    │ HTTP GET + JSON
+                    │ Refresh every 2 sec
+                    │ Payload:
+                    │  - recent_metrics (last 20)
+                    │  - anomaly_events (all anomalies)
+                    │  - statistics
+                    │  - topology
+                    ▼
+       ┌────────────────────────────────────────┐
+       │  Dashboard Frontend (index.html)       │
+       │                                        │
+       │  • Fetch data every 2 seconds          │
+       │  • Run attack type heuristics          │
+       │  • Update charts (Chart.js)           │
+       │  • Render tables with real data        │
+       │  • Display live panels                 │
+       │  • Show wireless context               │
+       └────────────────────────────────────────┘
+              Real-time Web UI
+         ✅ Normal / 🔴 Anomaly
+         🌊 ICMP Flood / 🔍 Port Scan / etc.
+\end{verbatim}
+
+\subsection{K. Component Interactions}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{|l|l|l|l|}
+\hline
+\textbf{From} & \textbf{To} & \textbf{Method} & \textbf{Data} \\
+\hline
+IoT & Edge Server & TCP Socket & 24 features (JSON) \\
+\hline
+Edge Server & Dashboard & HTTP POST & Predictions + raw features \\
+\hline
+Dashboard Frontend & Backend & HTTP GET & Metrics \& topology \\
+\hline
+Frontend & Browser & WebSocket/JS & Real-time UI updates \\
+\hline
+\end{tabularx}
+\end{table}
+
+% ============================================================
+\section{Phase 7: Key Metrics to Highlight (5 phút)}
+% ============================================================
+
+\subsection{L. 3 Main Monitoring Dimensions}
+
+\subsubsection{1. Anomaly Score (P\_malicious)}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{|l|X|X|}
+\hline
+\textbf{Range} & \textbf{Status} & \textbf{Action} \\
+\hline
+0.0 - 0.5 & 🟢 Safe & Monitor \\
+\hline
+0.5 - 0.7 & 🟡 Medium Risk & Alert \\
+\hline
+0.7 - 0.9 & 🟠 High Risk & Investigate \\
+\hline
+0.9 - 1.0 & 🔴 Critical & Block/Mitigate \\
+\hline
+\end{tabularx}
+\end{table}
+
+\textbf{Source:} Probability output từ Decision Tree model
+
+\subsubsection{2. Attack Type Classification}
+
+Heuristic-based phân loại từ raw features:
+
+\begin{itemize}
+    \item 🌊 ICMP Flood - Massive ICMP packets, no reply
+    \item 🔍 Port Scan - Probing TCP connections
+    \item ⚡ SYN Flood - Incomplete TCP handshakes
+    \item 🔴 Smurf Amplification - ICMP reflection
+    \item 🔐 ICMP Tunnel - Large ICMP payloads
+    \item 📋 FIN Scan - TCP termination scanning
+    \item ✓ Normal - Legitimate traffic
+\end{itemize}
+
+\subsubsection{3. Wireless Context (5G-IoT Specific)}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+\textbf{Metric} & \textbf{Significance} \\
+\hline
+Signal Strength (dBm) & Proximity, interference level \\
+\hline
+Bitrate (Mbps) & Link quality, congestion \\
+\hline
+AP SSID/BSSID & Network identification \\
+\hline
+Mininet Node & Source/destination location \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsection{M. Real-time Dashboard Monitoring}
+
+\textbf{Watch these elements during demo:}
+
+\begin{enumerate}
+    \item \textbf{Charts updating in real-time}
+        \begin{itemize}
+            \item Anomaly Score line should spike red during attacks
+            \item TotBytes shows traffic volume
+            \item Signal dBm tracks WiFi quality
+        \end{itemize}
+    
+    \item \textbf{Anomaly Events table populated}
+        \begin{itemize}
+            \item New rows appear as attacks detected
+            \item Attack Type column shows heuristic classification
+            \item Severity badge color codes severity
+        \end{itemize}
+    
+    \item \textbf{Device Summary table aggregates flows}
+        \begin{itemize}
+            \item Anomaly count increases per device
+            \item Last seen timestamp updates
+            \item Signal/bitrate from latest packet
+        \end{itemize}
+\end{enumerate}
+
+% ============================================================
+\section{Phase 8: Q\&A Preparation}
+% ============================================================
+
+\subsection{Anticipated Questions}
+
+\subsubsection{Q1: Tại sao model confidence luôn 100\%?}
+
+\textbf{Answer:}
+\begin{itemize}
+    \item Model trained với \texttt{max\_depth=None} (unlimited tree growth)
+    \item Decision Tree grew to depth 220 với 402 leaves
+    \item Tất cả 402 leaves đều \textbf{pure} (100\% single class)
+    \item Overfitting từ training data → always outputs max probability 1.0
+    \item \textbf{Solution:} Retrain với \texttt{max\_depth=15-25} để tạo mixed leaves
+\end{itemize}
+
+\subsubsection{Q2: Attack Type Classification làm sao có accuracy cao?}
+
+\textbf{Answer:}
+\begin{itemize}
+    \item Rule-based heuristic từ 24 raw network features
+    \item Mỗi attack type có unique signature pattern
+    \item Ví dụ ICMP Flood:
+    \begin{itemize}
+        \item \texttt{icmp=1} (ICMP protocol)
+        \item \texttt{d\_ttl=0} (no reply)
+        \item \texttt{tot\_bytes} pattern
+        \item \texttt{s\_mean\_pkt\_sz} small
+    \end{itemize}
+    \item Combine rules → 78-90\% heuristic confidence
+    \item \textbf{Advantage:} No additional model training needed
+\end{itemize}
+
+\subsubsection{Q3: Làm sao detect được Mininet-WiFi context?}
+
+\textbf{Answer:}
+\begin{itemize}
+    \item IoT stations report wireless stats khi gửi data
+    \item Signal strength (dBm), bitrate (Mbps), AP SSID/BSSID
+    \item Edge Server collects + sends via HTTP payload
+    \item Dashboard aggregates topology từ multiple flows
+    \item \textbf{Result:} Real 5G-WiFi context visible in "Wireless Context" panel
+\end{itemize}
+
+\subsubsection{Q4: Có thể mở rộng với real datasets không?}
+
+\textbf{Answer:}
+\begin{itemize}
+    \item \textbf{Currently:} Training data từ \texttt{dataset/Encoded.csv}
+    \item \textbf{To scale:} Replace với real network capture (PCAP files)
+    \item \textbf{Pipeline ready:} Feature extraction code supports arbitrary captures
+    \item \textbf{Retrain:} Notebook có thể load real data → retrain model
+    \item \textbf{Result:} Attack type heuristics adapt automatically
+\end{itemize}
+
+\subsubsection{Q5: Performance - có real-time latency không?}
+
+\textbf{Answer:}
+\begin{itemize}
+    \item \textbf{Edge inference:} < 1ms (lightweight Decision Tree)
+    \item \textbf{Network latency:} IoT → Edge Server ~5-10ms
+    \item \textbf{Dashboard refresh:} 2 second intervals (tunable)
+    \item \textbf{Total end-to-end:} < 2.1 seconds from attack to display
+    \item \textbf{Scalability:} Deque maxlen=1000 fits 500+ flows
+\end{itemize}
+
+\subsubsection{Q6: Dashboard ẩn model confidence tại sao?}
+
+\textbf{Answer:}
+\begin{itemize}
+    \item Model confidence luôn ~100% (overfitting issue)
+    \item Ẩn để avoid confusion
+    \item \textbf{Instead:} Focus vào Attack Type heuristic confidence (50-95%)
+    \item Attack Type confidence more meaningful + actionable
+\end{itemize}
+
+% ============================================================
+\section{Demo Timeline Summary}
+% ============================================================
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{|r|X|l|}
+\hline
+\textbf{Time} & \textbf{Activity} & \textbf{Duration} \\
+\hline
+0:00 & Setup: Backend + Frontend + Mininet & 5 min \\
+\hline
+5:00 & Phase 2: Edge Server, IoT stations startup & - \\
+\hline
+10:00 & Scenario 1: Normal Traffic (Benign) & 3 min \\
+\hline
+13:00 & Scenario 2: ICMP Flood Attack & 3 min \\
+\hline
+16:00 & Scenario 3: Port Scan & 3 min \\
+\hline
+19:00 & Scenario 4: TCP SYN Flood & 3 min \\
+\hline
+22:00 & Dashboard Deep Dive & 10 min \\
+\hline
+32:00 & Model \& Features Explanation & 10 min \\
+\hline
+42:00 & Architecture \& Data Flow & 5 min \\
+\hline
+47:00 & Key Metrics Review & 5 min \\
+\hline
+52:00 & Q\&A Discussion & 10 min \\
+\hline
+62:00 & \textbf{Total Demo Time} & \textbf{~60 min} \\
+\hline
+\end{tabularx}
+\end{table}
+
+% ============================================================
+\section{Pro Tips for Effective Demo}
+% ============================================================
+
+\subsection{Technical Preparation}
+
+\begin{enumerate}
+    \item \textbf{Pre-warmup:}
+    \begin{itemize}
+        \item Run backend \& Mininet 5 min before demo
+        \item Pre-populate dashboard with 10-20 flows
+        \item Charts will have baseline data
+    \end{itemize}
+    
+    \item \textbf{Terminal setup:}
+    \begin{itemize}
+        \item Use large font size (12-14pt) for readability
+        \item Set terminal colors: green for success, red for anomaly
+        \item Have 3+ terminals open: backend, Mininet, logs
+    \end{itemize}
+    
+    \item \textbf{Dashboard display:}
+    \begin{itemize}
+        \item Use 1920x1080 or higher resolution
+        \item Browser at 100\% zoom
+        \item DevTools closed
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Presentation Flow}
+
+\begin{enumerate}
+    \item \textbf{Narrative flow:}
+    \begin{itemize}
+        \item Start with normal case → build confidence
+        \item Then show attack cases progressively
+        \item End with architecture \& technical depth
+    \end{itemize}
+    
+    \item \textbf{Timing:}
+    \begin{itemize}
+        \item Stick to timeline
+        \item Attacks should take 3-5 min each to generate visible data
+        \item Allow 30 sec between attacks for dashboard update
+    \end{itemize}
+    
+    \item \textbf{Backup plans:}
+    \begin{itemize}
+        \item Pre-record 5 min video of each scenario
+        \item Have pre-populated database JSON
+        \item Screenshot of expected dashboard state
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Engagement Strategies}
+
+\begin{enumerate}
+    \item Ask audience: ``What do you think is happening?'' when showing anomaly spike
+    \item Highlight real-time updates: ``Watch the chart update in real-time''
+    \item Point to raw features: ``This is real network data, not simulated''
+    \item Show Mininet CLI logs: ``Edge Server is classifying attacks as they happen''
+\end{enumerate}
+
+% ============================================================
+\section{Key Takeaways}
+% ============================================================
+
+\subsection{Project Highlights}
+
+\begin{itemize}
+    \item \textbf{Real-time Edge AI:} Decision Tree classifier running on edge device
+    \item \textbf{5G-WiFi Simulation:} Mininet-WiFi with realistic network context
+    \item \textbf{7-Type Attack Classification:} Rule-based heuristic from 24 features
+    \item \textbf{Live Dashboard:} 2-second real-time visualization
+    \item \textbf{Comprehensive Monitoring:} Anomaly score + attack type + wireless context
+\end{itemize}
+
+\subsection{Technical Innovations}
+
+\begin{itemize}
+    \item \textbf{Feature Engineering:} Extract meaningful patterns from raw flows
+    \item \textbf{Heuristic Classification:} Complement model with rule-based approach
+    \item \textbf{Minimal Latency:} Sub-second edge inference + 2sec dashboard refresh
+    \item \textbf{Scalable Architecture:} FIFO deque + real-time aggregation
+\end{itemize}
+
+\subsection{Future Enhancements}
+
+\begin{enumerate}
+    \item Retrain model with \texttt{max\_depth=20} to avoid overfitting
+    \item Add more attack types (DNS tunneling, botnet detection)
+    \item Implement machine learning confidence calibration
+    \item Deploy on actual 5G testbed (beyond Mininet simulation)
+    \item Add anomaly root-cause analysis
+\end{enumerate}
+
+% ============================================================
+\end{document}

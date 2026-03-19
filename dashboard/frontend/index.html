@@ -473,6 +473,67 @@
             border: 1px solid var(--accent-green);
         }
 
+        /* Attack Type Classification Badges */
+        .attack-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 12px;
+            border-radius: 14px;
+            font-size: 0.8em;
+            font-weight: 700;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .attack-badge.port-scan {
+            background: rgba(255, 87, 34, 0.2);
+            color: #ff5722;
+            border: 1px solid rgba(255, 87, 34, 0.5);
+        }
+
+        .attack-badge.tcp-syn-flood {
+            background: rgba(244, 67, 54, 0.2);
+            color: #f44336;
+            border: 1px solid rgba(244, 67, 54, 0.5);
+        }
+
+        .attack-badge.icmp-flood {
+            background: rgba(233, 30, 99, 0.2);
+            color: #e91e63;
+            border: 1px solid rgba(233, 30, 99, 0.5);
+        }
+
+        .attack-badge.smurf {
+            background: rgba(156, 39, 176, 0.2);
+            color: #9c27b0;
+            border: 1px solid rgba(156, 39, 176, 0.5);
+        }
+
+        .attack-badge.icmp-tunnel {
+            background: rgba(103, 58, 183, 0.2);
+            color: #673ab7;
+            border: 1px solid rgba(103, 58, 183, 0.5);
+        }
+
+        .attack-badge.fin-scan {
+            background: rgba(63, 81, 181, 0.2);
+            color: #3f51b5;
+            border: 1px solid rgba(63, 81, 181, 0.5);
+        }
+
+        .attack-badge.normal {
+            background: rgba(0, 255, 136, 0.12);
+            color: var(--accent-green);
+            border: 1px solid rgba(0, 255, 136, 0.35);
+        }
+
+        .attack-badge.unknown {
+            background: rgba(158, 158, 158, 0.12);
+            color: #9e9e9e;
+            border: 1px solid rgba(158, 158, 158, 0.35);
+        }
+
         .muted {
             color: var(--text-secondary);
         }
@@ -562,11 +623,13 @@
             <div class="stat-label">🎯 Avg Anomaly Score</div>
             <div class="stat-value" id="avgAnomalyScore">0.000</div>
         </div>
-        <div class="stat-card">
+        <!-- Avg Confidence hidden - model confidence always ~100% due to overfitting -->
+        <div class="stat-card" style="display: none;">
             <div class="stat-label">✅ Avg Confidence</div>
             <div class="stat-value" id="avgConfidence">0.000</div>
         </div>
-        <div class="stat-card">
+        <!-- Data Points hidden - use table row counts for reference instead -->
+        <div class="stat-card" style="display: none;">
             <div class="stat-label">💾 Data Points</div>
             <div class="stat-value" id="dataCount">0</div>
         </div>
@@ -581,7 +644,8 @@
                 <div class="kv-item"><div class="kv-label">Prediction</div><div class="kv-value" id="latestPrediction">—</div></div>
                 <div class="kv-item"><div class="kv-label">Severity</div><div class="kv-value" id="latestSeverity">—</div></div>
                 <div class="kv-item"><div class="kv-label">Anomaly Score</div><div class="kv-value" id="latestScore">—</div></div>
-                <div class="kv-item"><div class="kv-label">Confidence</div><div class="kv-value" id="latestConfidence">—</div></div>
+                <!-- Model Confidence hidden - use Attack Type confidence instead -->
+                <div class="kv-item" style="display: none;"><div class="kv-label" title="Model Prediction Confidence (Decision Tree)">Confidence (Model)</div><div class="kv-value" id="latestConfidence">—</div></div>
                 <div class="kv-item"><div class="kv-label">Timestamp</div><div class="kv-value" id="latestTimestamp">—</div></div>
             </div>
         </div>
@@ -700,8 +764,8 @@
                         <th>Timestamp</th>
                         <th>Device ID</th>
                         <th>Severity</th>
+                        <th>Attack Type<br><small style="font-size:0.7em; color:var(--text-secondary);">Rule-based</small></th>
                         <th>Anomaly Score</th>
-                        <th>Confidence</th>
                         <th>TotBytes</th>
                         <th>SrcBytes</th>
                         <th>TcpRtt</th>
@@ -714,7 +778,7 @@
                     </tr>
                 </thead>
                 <tbody id="anomalyTableBody">
-                    <tr><td colspan="14" class="no-data">No anomalies detected yet</td></tr>
+                    <tr><td colspan="15" class="no-data">No anomalies detected yet</td></tr>
                 </tbody>
             </table>
         </div>
@@ -729,8 +793,8 @@
                         <th>Timestamp</th>
                         <th>Device ID</th>
                         <th>Status</th>
+                        <th>Attack Type<br><small style="font-size:0.7em; color:var(--text-secondary);">Rule-based</small></th>
                         <th>Anomaly Score</th>
-                        <th>Confidence</th>
                         <th>TotBytes</th>
                         <th>SrcBytes</th>
                         <th>TcpRtt</th>
@@ -744,7 +808,7 @@
                     </tr>
                 </thead>
                 <tbody id="metricsTableBody">
-                    <tr><td colspan="15" class="no-data">No data received yet</td></tr>
+                    <tr><td colspan="16" class="no-data">No data received yet</td></tr>
                 </tbody>
             </table>
         </div>
@@ -779,6 +843,93 @@
             if (!ts) return '—';
             const d = new Date(ts);
             return Number.isNaN(d.getTime()) ? ts : d.toLocaleString();
+        }
+
+        /**
+         * Classify attack type based on heuristic rules from raw network features
+         * Returns: { type: 'port-scan'|'tcp-syn-flood'|'icmp-flood'|'smurf'|'icmp-tunnel'|'fin-scan'|'normal'|'unknown', confidence: 0-100 }
+         */
+        function classifyAttackType(m) {
+            const tot_bytes = m.tot_bytes ?? 0;
+            const src_bytes = m.src_bytes ?? 0;
+            const s_mean_pkt_sz = m.s_mean_pkt_sz ?? 0;
+            const s_ttl = m.s_ttl ?? 0;
+            const d_ttl = m.d_ttl ?? 0;
+            const s_hops = m.s_hops ?? 0;
+            const icmp = m.icmp ?? 0;
+            const tcp_flag = m.tcp_flag ?? 0;
+            const rst_flag = m.rst_flag ?? 0;
+            const is_anomaly = m.prediction_label === 'anomaly';
+
+            // Normal traffic — benign flows are large + bidirectional
+            if (!is_anomaly) {
+                return { type: 'normal', confidence: 95 };
+            }
+            if (d_ttl > 0 && tot_bytes > 5000 && s_mean_pkt_sz > 200) {
+                return { type: 'normal', confidence: 90 };
+            }
+
+            // ─── ICMP-based attacks (check first — clearer patterns) ───
+            
+            // ICMP Tunnel: icmp=1 + large payload (>10000 bytes indicates data tunneling)
+            if (icmp === 1 && tot_bytes > 10000 && s_mean_pkt_sz > 100) {
+                return { type: 'icmp-tunnel', confidence: 90 };
+            }
+
+            // Smurf Attack: icmp=1 + bidirectional (d_ttl > 0) + amplification signal
+            if (icmp === 1 && d_ttl > 0 && src_bytes > 0 && tot_bytes > 10000) {
+                return { type: 'smurf', confidence: 85 };
+            }
+
+            // ICMP Flood: icmp=1 + one-way (d_ttl=0) + any payload size (small-medium indicates flood)
+            if (icmp === 1 && d_ttl === 0 && tcp_flag === 0) {
+                return { type: 'icmp-flood', confidence: 88 };
+            }
+
+            // ─── TCP-based attacks (check second) ───
+
+            // TCP RST Injection: tcp=1 + rst_flag=1 
+            if (tcp_flag === 1 && rst_flag === 1) {
+                return { type: 'port-scan', confidence: 92 };
+            }
+
+            // Port Scan: tcp=1 + small packets + one-way pattern
+            if (tcp_flag === 1 && tot_bytes <= 5000 && s_mean_pkt_sz <= 100 && d_ttl <= 60) {
+                if (tot_bytes < 500) {
+                    return { type: 'port-scan', confidence: 88 };
+                } else {
+                    return { type: 'port-scan', confidence: 82 };
+                }
+            }
+
+            // TCP SYN Flood: tcp=1 + small packets + incomplete state
+            if (tcp_flag === 1 && tot_bytes <= 5000 && s_mean_pkt_sz <= 80) {
+                return { type: 'tcp-syn-flood', confidence: 85 };
+            }
+
+            // FIN Scan: tcp=1 + medium flow + fine-grained pattern
+            if (tcp_flag === 1 && tot_bytes > 500 && tot_bytes <= 5000 && s_mean_pkt_sz <= 100) {
+                return { type: 'fin-scan', confidence: 78 };
+            }
+
+            // Default: unknown attack pattern
+            return { type: 'unknown', confidence: 50 };
+        }
+
+        function attackTypePill(m) {
+            const classified = classifyAttackType(m);
+            const { type, confidence } = classified;
+            const labels = {
+                'port-scan': '🔍 Port Scan',
+                'tcp-syn-flood': '⚡ SYN Flood',
+                'icmp-flood': '🌊 ICMP Flood',
+                'smurf': '🔴 Smurf Amp',
+                'icmp-tunnel': '🔐 ICMP Tunnel',
+                'fin-scan': '📋 FIN Scan',
+                'normal': '✓ Normal',
+                'unknown': '❓ Unknown'
+            };
+            return `<span class="attack-badge ${type}" title="Heuristic Classification Confidence: ${confidence}%\\n(dựa trên raw network features, không phải model confidence)">${labels[type] || type}</span>`;
         }
 
         function flagBadges(m) {
@@ -1072,8 +1223,8 @@
                         <td>${formatTime(e.timestamp)}</td>
                         <td>${e.device_id || '—'}</td>
                         <td><span class="severity-badge ${sevCls}">${e.severity || 'low'}</span></td>
+                        <td>${attackTypePill(e)}</td>
                         <td>${formatNumber(e.anomaly_score, 4)}</td>
-                        <td>${formatNumber(e.confidence, 4)}</td>
                         <td>${formatCompact(e.tot_bytes)}</td>
                         <td>${formatCompact(e.src_bytes)}</td>
                         <td>${formatNumber(e.tcp_rtt, 4)}</td>
@@ -1102,8 +1253,8 @@
                         <td>${formatTime(m.timestamp)}</td>
                         <td>${m.device_id || '—'}</td>
                         <td>${predictionPill(m)}</td>
+                        <td>${attackTypePill(m)}</td>
                         <td>${formatNumber(m.anomaly_score, 4)}</td>
-                        <td>${formatNumber(m.confidence, 4)}</td>
                         <td>${formatCompact(m.tot_bytes)}</td>
                         <td>${formatCompact(m.src_bytes)}</td>
                         <td>${formatNumber(m.tcp_rtt, 4)}</td>
