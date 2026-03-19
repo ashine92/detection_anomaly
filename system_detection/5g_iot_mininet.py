@@ -161,18 +161,22 @@ def startEdgeServer(edge_server, model_dir, simu_dir,
 
 
 def startIoTStation(station, device_id, interval, anomaly_rate, edge_ip,
-                    simu_dir, edge_port=5001):
+                    simu_dir, edge_port=5001, paused=True):
     """Khởi động IoT Station bên trong Mininet node — truyền IP edge server"""
     info(f"\n*** Starting IoT Station {device_id} -> Edge {edge_ip}:{edge_port}\n")
+    
+    paused_flag = " --paused" if paused else ""
     cmd = (
         f"cd {simu_dir} && "
         f"MININET_NODE={device_id} MININET_AP_SSID=5G-IoT-Network "
         f"python3 iot_station.py {device_id} {interval} {anomaly_rate} "
-        f"{edge_ip} {edge_port} "
+        f"{edge_ip} {edge_port}{paused_flag} "
         f"> /tmp/{device_id}.log 2>&1 &"
     )
     station.cmd(cmd)
     info(f"{device_id} started (log: /tmp/{device_id}.log)\n")
+    if paused:
+        info(f"  Status: ⏸️  PAUSED - waiting for trigger\n")
 
 
 def testConnectivity(net, edge_server, sta1, sta2):
@@ -241,20 +245,40 @@ def runSimulation():
     edge_ip = edge_server.IP()
 
     # Khởi động các IoT Stations — kết nối đến edge_ip chứ không phải localhost
-    startIoTStation(sta1, 'sta1', 2, 0.2,  edge_ip, simu_dir)  # 2 s, 20% anomaly
-    startIoTStation(sta2, 'sta2', 3, 0.15, edge_ip, simu_dir)  # 3 s, 15% anomaly
+    # Mặc định bắt đầu ở PAUSED state - demo gửi lệnh để bắt đầu
+    startIoTStation(sta1, 'sta1', 2, 0.2,  edge_ip, simu_dir, paused=True)
+    startIoTStation(sta2, 'sta2', 3, 0.15, edge_ip, simu_dir, paused=True)
 
-    info("\n*** Starting CLI (type 'exit' to quit)\n")
-    info("Useful commands:\n")
-    info("  - nodes: show all nodes\n")
-    info("  - links: show all links\n")
-    info("  - net: show network info\n")
-    info("  - sta1 ping edge1: ping from station to edge server\n")
-    info("  - edge1 tail -f /tmp/edge_server.log  # live edge log\n")
-    info("  - sta1  tail -f /tmp/sta1.log          # live station 1 log\n")
-    info("  - sta2  tail -f /tmp/sta2.log          # live station 2 log\n")
-    info("  - xterm sta1: open terminal on station\n")
+    info("\n" + "="*70 + "\n")
+    info("*** DEMO MODE - IoT Stations PAUSED (ready for manual control)\n")
+    info("="*70 + "\n")
+    
+    info("*** Starting CLI (type 'exit' to quit)\n")
+    info("\n" + "="*70 + "\n")
+    info("DEMO COMMANDS - IoT DATA CONTROL:\n")
+    info("="*70 + "\n")
+    info("START sta1:   sta1 touch /tmp/sta1_running\n")
+    info("STOP sta1:    sta1 rm /tmp/sta1_running\n")
+    info("START sta2:   sta2 touch /tmp/sta2_running\n")
+    info("STOP sta2:    sta2 rm /tmp/sta2_running\n")
     info("\n")
+    info("START ALL:    sta1 touch /tmp/sta1_running && sta2 touch /tmp/sta2_running\n")
+    info("STOP ALL:     sta1 rm /tmp/sta1_running && sta2 rm /tmp/sta2_running\n")
+    info("\n")
+    info("="*70 + "\n")
+    info("MONITORING COMMANDS:\n")
+    info("="*70 + "\n")
+    info("  edge1 tail -f /tmp/edge_server.log  # live edge server predictions\n")
+    info("  sta1  tail -f /tmp/sta1.log         # live sta1 activity\n")
+    info("  sta2  tail -f /tmp/sta2.log         # live sta2 activity\n")
+    info("\n")
+    info("NETWORK COMMANDS:\n")
+    info("="*70 + "\n")
+    info("  nodes: show all nodes\n")
+    info("  sta1 ping edge1: test connectivity\n")
+    info("  sta1 iperf -s: start server\n")
+    info("  sta2 iperf -c <IP>: start client\n")
+    info("="*70 + "\n\n")
 
     # Mở CLI để tương tác
     CLI(net)
