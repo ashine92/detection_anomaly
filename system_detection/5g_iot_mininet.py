@@ -13,6 +13,7 @@ import os
 import time
 import glob
 import subprocess
+import signal
 
 # Import Mininet-WiFi components
 try:
@@ -25,6 +26,38 @@ except ImportError:
     print("Error: Mininet-WiFi not installed!")
     print("Install with: sudo apt-get install mininet-wifi")
     sys.exit(1)
+
+def cleanupMininet():
+    """Clean up leftover Mininet processes and network interfaces"""
+    info("*** Cleaning up Mininet environment\n")
+    try:
+        # Kill any existing mininet processes
+        subprocess.run(['pkill', '-9', 'mn'], stderr=subprocess.DEVNULL)
+        time.sleep(0.5)
+        
+        # Stop wmediumd if running
+        subprocess.run(['pkill', '-9', 'wmediumd'], stderr=subprocess.DEVNULL)
+        time.sleep(0.5)
+        
+        # Clean OVS bridges
+        result = subprocess.run(['ovs-vsctl', 'list-br'], 
+                              capture_output=True, text=True, timeout=5)
+        for bridge in result.stdout.strip().split('\n'):
+            if bridge:
+                try:
+                    subprocess.run(['ovs-vsctl', 'del-br', bridge], 
+                                 timeout=5, stderr=subprocess.DEVNULL)
+                except:
+                    pass
+        time.sleep(0.5)
+        
+        # Run Mininet's cleanup
+        subprocess.run(['mn', '-c'], stderr=subprocess.DEVNULL, timeout=10)
+        time.sleep(1)
+        
+        info("*** Cleanup complete\n")
+    except Exception as e:
+        info(f"*** Cleanup warning (non-critical): {e}\n")
 
 def create5GIoTTopology():
     """Tạo topology mạng 5G-IoT"""
@@ -141,7 +174,15 @@ def startEdgeServer(edge_server, model_dir, simu_dir,
 
     model_file = model_matches[-1]
     # Tự động tìm scaler tương ứng (cùng timestamp)
-    timestamp = model_file.split('_')[-1].split('.')[0]
+    # Extract full timestamp from model filename (e.g., "20260603_222933" from "random_forest_model_OPTIMIZED_20260603_222933.pkl")
+    basename = os.path.basename(model_file)
+    parts = basename.replace('.pkl', '').split('_')
+    if len(parts) >= 3:
+        # Get the last two parts which should be date_time
+        timestamp = '_'.join(parts[-2:])
+    else:
+        timestamp = parts[-1]
+    
     scaler_file = f"{model_dir}/scaler_OPTIMIZED_{timestamp}.pkl"
     if not os.path.exists(scaler_file):
         scaler_file = f"{model_dir}/scaler_{timestamp}.pkl"
@@ -218,6 +259,9 @@ def getHostIP():
 def runSimulation():
     """Chạy mô phỏng mạng và tự động khởi động edge server + IoT stations"""
     setLogLevel('info')
+    
+    # Clean up any leftover Mininet processes from previous runs
+    cleanupMininet()
 
     # Resolve path to system_detection/ and model/
     simu_dir  = os.path.dirname(os.path.abspath(__file__))
@@ -289,4 +333,15 @@ def runSimulation():
     net.stop()
 
 if __name__ == '__main__':
-    runSimulation()
+    def signal_handler(sig, frame):
+        info("\n*** Received interrupt signal, cleaning up...\n")
+        cleanupMininet()
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        runSimulation()
+    finally:
+        cleanupMininet()

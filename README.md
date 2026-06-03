@@ -230,6 +230,50 @@ Kết quả mong đợi:
 }
 ```
 
+**Bước 6 — Kích hoạt IoT Stations (Demo Mode) ⭐:**
+
+IoT Stations được khởi động ở chế độ **PAUSED** — chúng chờ tín hiệu bắt đầu. Để kích hoạt:
+
+**Kích hoạt sta1 (gửi dữ liệu mỗi 2 giây):**
+```bash
+mininet-wifi> sta1 touch /tmp/sta1_running
+```
+
+**Kích hoạt sta2 (gửi dữ liệu mỗi 3 giây):**
+```bash
+mininet-wifi> sta2 touch /tmp/sta2_running
+```
+
+**Hoặc kích hoạt cả hai cùng lúc:**
+```bash
+mininet-wifi> sta1 touch /tmp/sta1_running && sta2 touch /tmp/sta2_running
+```
+
+✅ Dữ liệu sẽ bắt đầu xuất hiện trên dashboard ngay lập tức!
+
+**Xác nhận dữ liệu đang được gửi:**
+```bash
+mininet-wifi> edge1 tail -f /tmp/edge_server.log
+```
+
+Kết quả mong đợi:
+```
+2026-06-04 00:56:15,123 - __main__ - INFO - 🟢 [Benign]     conf=99%  p_mal=0.0000 | TotBytes=249093 sig=-76dBm bitrate=54.0 | Dashboard: ✓
+2026-06-04 00:56:17,456 - __main__ - INFO - 🔴 [Malicious] conf=95%  p_mal=0.9800 | TotBytes=142 sig=-72dBm bitrate=54.0 | Dashboard: ✓
+...
+```
+
+**Dừng gửi dữ liệu:**
+```bash
+mininet-wifi> sta1 rm /tmp/sta1_running
+mininet-wifi> sta2 rm /tmp/sta2_running
+```
+
+**Xem dashboard trong browser:**
+- Truy cập `http://localhost:5000` từ host machine
+- Các thống kê tự động cập nhật realtime
+- Xem Anomaly Score, Confidence, Network Features trong các biểu đồ và bảng
+
 ### Các lệnh hữu ích trong Mininet CLI
 
 ```
