@@ -130,20 +130,22 @@ def startEdgeServer(edge_server, model_dir, simu_dir,
     """Khởi động edge_server_with_dashboard.py bên trong Mininet node edge1"""
     info("\n*** Starting Edge Server (with dashboard) on edge1...\n")
 
-    model_matches = sorted(glob.glob(f"{model_dir}/decision_tree_model_IMPROVED_*.pkl"))
+    model_matches = sorted(glob.glob(f"{model_dir}/random_forest_model_OPTIMIZED_*.pkl"))
     if not model_matches:
-        model_matches = sorted(glob.glob(f"{model_dir}/decision_tree_model_*.pkl"))
-    scaler_matches = sorted(glob.glob(f"{model_dir}/scaler_IMPROVED_*.pkl"))
-    if not scaler_matches:
-        scaler_matches = sorted(glob.glob(f"{model_dir}/scaler_*.pkl"))
-
-    if not model_matches or not scaler_matches:
-        info(f"ERROR: No model/scaler found in {model_dir}\n")
+        model_matches = sorted(glob.glob(f"{model_dir}/random_forest_model_*.pkl"))
+    
+    if not model_matches:
+        info(f"ERROR: No model found in {model_dir}\n")
         info("  Train the model first: model_development/retrain-model-improved.ipynb\n")
         return False
 
-    model_file  = model_matches[-1]
-    scaler_file = scaler_matches[-1]
+    model_file = model_matches[-1]
+    # Tự động tìm scaler tương ứng (cùng timestamp)
+    timestamp = model_file.split('_')[-1].split('.')[0]
+    scaler_file = f"{model_dir}/scaler_OPTIMIZED_{timestamp}.pkl"
+    if not os.path.exists(scaler_file):
+        scaler_file = f"{model_dir}/scaler_{timestamp}.pkl"
+        
     info(f"  Model:  {os.path.basename(model_file)}\n")
     info(f"  Scaler: {os.path.basename(scaler_file)}\n")
 

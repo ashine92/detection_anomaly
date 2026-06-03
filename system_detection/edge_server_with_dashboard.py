@@ -263,11 +263,20 @@ class EdgeIoTDetectionServerWithDashboard:
 if __name__ == "__main__":
     # model_path and scaler_path are now optional — defaults are set below
     
-    # Default paths relative to this script's location
+    import glob
     _base = os.path.dirname(os.path.abspath(__file__))
     _model_dir = os.path.join(_base, '..', 'model')
-    _default_model  = os.path.join(_model_dir, 'decision_tree_model_20260305_223751.pkl')
-    _default_scaler = os.path.join(_model_dir, 'scaler_20260305_223751.pkl')
+    
+    # Auto-detect latest random forest model
+    model_files = glob.glob(os.path.join(_model_dir, 'random_forest_model_*.pkl'))
+    if model_files:
+        _default_model = max(model_files, key=os.path.getctime)
+        timestamp = os.path.basename(_default_model).split('_')[-1].split('.')[0]
+        scaler_files = glob.glob(os.path.join(_model_dir, f'scaler_*_{timestamp}.pkl'))
+        _default_scaler = scaler_files[0] if scaler_files else glob.glob(os.path.join(_model_dir, 'scaler_*.pkl'))[0]
+    else:
+        _default_model = ""
+        _default_scaler = ""
 
     model_path  = sys.argv[1] if len(sys.argv) > 1 else _default_model
     scaler_path = sys.argv[2] if len(sys.argv) > 2 else _default_scaler
