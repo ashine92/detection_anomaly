@@ -9,6 +9,10 @@ from mininet.node import Controller, OVSKernelSwitch
 from mininet.cli import CLI
 from mininet.log import setLogLevel, info
 import sys
+import os
+import time
+import glob
+import subprocess
 
 # Import Mininet-WiFi components
 try:
@@ -52,8 +56,8 @@ def create5GIoTTopology():
     ap1 = net.addAccessPoint(
         'ap1',
         ssid='5G-IoT-Network',
-        mode='g',
-        channel='1',
+        mode='ac',          # 802.11ac ≈ 5G NR-U (Unlicensed)
+        channel='36',       # 5 GHz band channel
         range=50,  # Phạm vi 50m
         position='50,50,0',
         failMode='standalone'
@@ -92,10 +96,24 @@ def create5GIoTTopology():
     c0.start()
     s1.start([c0])
     ap1.start([c0])
+
+    # Gán IP cho OVS bridge s1 trong root namespace
+    # → host machine (Flask đang bind 0.0.0.0:5000) sẽ có IP 10.0.0.254
+    #   reachable từ mọi Mininet node trong 10.0.0.0/24
+    info("*** Assigning host management IP 10.0.0.254 to bridge s1\n")
+    subprocess.call(['ip', 'addr', 'add', '10.0.0.254/24', 'dev', 's1'],
+                    stderr=subprocess.DEVNULL)  # bỏ qua nếu đã set
+    subprocess.call(['ip', 'link', 'set', 's1', 'up'], stderr=subprocess.DEVNULL)
+    # Thêm OpenFlow rule cho phép tất cả traffic qua s1
+    # (mặc định OVS drop mọi packet khi không có flow rule)
+    subprocess.call(['ovs-ofctl', 'add-flow', 's1', 'priority=1,actions=normal'],
+                    stderr=subprocess.DEVNULL)
+    info("*** OVS flow rule added (actions=normal)\n")
     
     info("*** Configuring Routes\n")
-    # Cấu hình routing cho Edge Server
-    edge_server.cmd('ip route add default via 10.0.0.100')
+    # IoT stations need a default route to reach the edge server via ap1
+    sta1.cmd('ip route add default via 10.0.0.100 2>/dev/null || true')
+    sta2.cmd('ip route add default via 10.0.0.100 2>/dev/null || true')
     
     info("\n*** Network Topology Created Successfully!\n")
     info("=" * 60 + "\n")
@@ -106,6 +124,60 @@ def create5GIoTTopology():
     info("=" * 60 + "\n")
     
     return net, edge_server, ap1, sta1, sta2
+
+def startEdgeServer(edge_server, model_dir, simu_dir,
+                    dashboard_url='http://localhost:5000/api/metrics'):
+    """Khởi động edge_server_with_dashboard.py bên trong Mininet node edge1"""
+    info("\n*** Starting Edge Server (with dashboard) on edge1...\n")
+
+    model_matches = sorted(glob.glob(f"{model_dir}/decision_tree_model_IMPROVED_*.pkl"))
+    if not model_matches:
+        model_matches = sorted(glob.glob(f"{model_dir}/decision_tree_model_*.pkl"))
+    scaler_matches = sorted(glob.glob(f"{model_dir}/scaler_IMPROVED_*.pkl"))
+    if not scaler_matches:
+        scaler_matches = sorted(glob.glob(f"{model_dir}/scaler_*.pkl"))
+
+    if not model_matches or not scaler_matches:
+        info(f"ERROR: No model/scaler found in {model_dir}\n")
+        info("  Train the model first: model_development/retrain-model-improved.ipynb\n")
+        return False
+
+    model_file  = model_matches[-1]
+    scaler_file = scaler_matches[-1]
+    info(f"  Model:  {os.path.basename(model_file)}\n")
+    info(f"  Scaler: {os.path.basename(scaler_file)}\n")
+
+    cmd = (
+        f"cd {simu_dir} && "
+        f"MININET_NODE=edge1 MININET_AP_SSID=5G-IoT-Network "
+        f"python3 -u edge_server_with_dashboard.py "
+        f"{model_file} {scaler_file} {dashboard_url} "
+        f"> /tmp/edge_server.log 2>&1 &"
+    )
+    edge_server.cmd(cmd)
+    info("Edge Server started (log: /tmp/edge_server.log)\n")
+    time.sleep(3)  # wait for socket to bind
+    return True
+
+
+def startIoTStation(station, device_id, interval, anomaly_rate, edge_ip,
+                    simu_dir, edge_port=5001, paused=True):
+    """Khởi động IoT Station bên trong Mininet node — truyền IP edge server"""
+    info(f"\n*** Starting IoT Station {device_id} -> Edge {edge_ip}:{edge_port}\n")
+    
+    paused_flag = " --paused" if paused else ""
+    cmd = (
+        f"cd {simu_dir} && "
+        f"MININET_NODE={device_id} MININET_AP_SSID=5G-IoT-Network "
+        f"python3 iot_station.py {device_id} {interval} {anomaly_rate} "
+        f"{edge_ip} {edge_port}{paused_flag} "
+        f"> /tmp/{device_id}.log 2>&1 &"
+    )
+    station.cmd(cmd)
+    info(f"{device_id} started (log: /tmp/{device_id}.log)\n")
+    if paused:
+        info(f"  Status: ⏸️  PAUSED - waiting for trigger\n")
+
 
 def testConnectivity(net, edge_server, sta1, sta2):
     """Test kết nối giữa các node"""
@@ -124,28 +196,93 @@ def testConnectivity(net, edge_server, sta1, sta2):
     
     info("\n*** Connectivity Test Completed\n")
 
+def getHostIP():
+    """
+    Lấy IP thực của host machine (không phải 127.0.0.1).
+    Mininet nodes không thể gửi đến localhost — phải dùng IP thật của host.
+    """
+    import socket as _socket
+    try:
+        # Mở UDP socket giả để lấy interface IP ra ngoài
+        s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return '127.0.0.1'
+
+
 def runSimulation():
-    """Chạy mô phỏng mạng"""
+    """Chạy mô phỏng mạng và tự động khởi động edge server + IoT stations"""
     setLogLevel('info')
-    
+
+    # Resolve path to system_detection/ and model/
+    simu_dir  = os.path.dirname(os.path.abspath(__file__))
+    model_dir = os.path.join(os.path.dirname(simu_dir), 'model')
+
+    # IP thực của host machine — Mininet nodes cần IP này để reach Dashboard Flask
+    # Dùng IP của OVS bridge s1 (được gán ở create5GIoTTopology) thay vì host IP ngoài
+    dashboard_ip  = '10.0.0.254'   # IP host-side được gán cho s1 bridge
+    dashboard_url = f'http://{dashboard_ip}:5000/api/metrics'
+    info(f"\n*** Dashboard reachable at: {dashboard_url}\n")
+
     # Tạo topology
     net, edge_server, ap1, sta1, sta2 = create5GIoTTopology()
-    
+
     # Test connectivity
     testConnectivity(net, edge_server, sta1, sta2)
+
+    # Khởi động Edge Server bên trong Mininet
+    ok = startEdgeServer(edge_server, model_dir, simu_dir,
+                         dashboard_url=dashboard_url)
+    if not ok:
+        info("\n*** ABORTED: No model files found. Stopping network.\n")
+        net.stop()
+        return
+
+    # Lấy IP của edge node  trong mạng Mininet
+    edge_ip = edge_server.IP()
+
+    # Khởi động các IoT Stations — kết nối đến edge_ip chứ không phải localhost
+    # Mặc định bắt đầu ở PAUSED state - demo gửi lệnh để bắt đầu
+    startIoTStation(sta1, 'sta1', 2, 0.2,  edge_ip, simu_dir, paused=True)
+    startIoTStation(sta2, 'sta2', 3, 0.15, edge_ip, simu_dir, paused=True)
+
+    info("\n" + "="*70 + "\n")
+    info("*** DEMO MODE - IoT Stations PAUSED (ready for manual control)\n")
+    info("="*70 + "\n")
     
-    info("\n*** Starting CLI (type 'exit' to quit)\n")
-    info("Useful commands:\n")
-    info("  - nodes: show all nodes\n")
-    info("  - links: show all links\n")
-    info("  - net: show network info\n")
-    info("  - sta1 ping edge1: ping from station to edge server\n")
-    info("  - xterm sta1: open terminal on station\n")
+    info("*** Starting CLI (type 'exit' to quit)\n")
+    info("\n" + "="*70 + "\n")
+    info("DEMO COMMANDS - IoT DATA CONTROL:\n")
+    info("="*70 + "\n")
+    info("START sta1:   sta1 touch /tmp/sta1_running\n")
+    info("STOP sta1:    sta1 rm /tmp/sta1_running\n")
+    info("START sta2:   sta2 touch /tmp/sta2_running\n")
+    info("STOP sta2:    sta2 rm /tmp/sta2_running\n")
     info("\n")
-    
+    info("START ALL:    sta1 touch /tmp/sta1_running && sta2 touch /tmp/sta2_running\n")
+    info("STOP ALL:     sta1 rm /tmp/sta1_running && sta2 rm /tmp/sta2_running\n")
+    info("\n")
+    info("="*70 + "\n")
+    info("MONITORING COMMANDS:\n")
+    info("="*70 + "\n")
+    info("  edge1 tail -f /tmp/edge_server.log  # live edge server predictions\n")
+    info("  sta1  tail -f /tmp/sta1.log         # live sta1 activity\n")
+    info("  sta2  tail -f /tmp/sta2.log         # live sta2 activity\n")
+    info("\n")
+    info("NETWORK COMMANDS:\n")
+    info("="*70 + "\n")
+    info("  nodes: show all nodes\n")
+    info("  sta1 ping edge1: test connectivity\n")
+    info("  sta1 iperf -s: start server\n")
+    info("  sta2 iperf -c <IP>: start client\n")
+    info("="*70 + "\n\n")
+
     # Mở CLI để tương tác
     CLI(net)
-    
+
     info("\n*** Stopping Network\n")
     net.stop()
 
