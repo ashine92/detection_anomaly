@@ -95,11 +95,23 @@ def startEdgeServer(edge_server, model_dir):
     """Khởi động Edge Server trên node edge1"""
     info("\n*** Starting Edge Server on edge1...\n")
     
-    model_file = f"{model_dir}/decision_tree_model_20260227_205406.pkl"
-    scaler_file = f"{model_dir}/scaler_20260227_205406.pkl"
+    # Lấy model mới nhất
+    import glob
+    import os
+    model_dir = "../model"
+    model_files = glob.glob(f"{model_dir}/random_forest_model_*.pkl")
+    if not model_files:
+        print("❌ Không tìm thấy model files!")
+        return
     
-    # Chạy edge_server trong background trên node edge1 với unbuffered output
-    cmd = f"python3 -u edge_server.py {model_file} {scaler_file} > /tmp/edge_server.log 2>&1 &"
+    model_file = max(model_files, key=os.path.getctime)
+    timestamp = model_file.split('_')[-1].split('.')[0]
+    # Lấy timestamp để map với scaler
+    scaler_file = glob.glob(f"{model_dir}/scaler_*_{timestamp}.pkl")[0] if glob.glob(f"{model_dir}/scaler_*_{timestamp}.pkl") else glob.glob(f"{model_dir}/scaler_*.pkl")[0]
+
+    
+    # Chạy edge_server_with_dashboard trong background trên node edge1 với unbuffered output
+    cmd = f"python3 -u edge_server_with_dashboard.py {model_file} {scaler_file} > /tmp/edge_server.log 2>&1 &"
     edge_server.cmd(cmd)
     
     info("Edge Server started (log: /tmp/edge_server.log)\n")

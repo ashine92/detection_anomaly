@@ -3,7 +3,7 @@
 ## 📋 Tổng Quan Hệ Thống
 
 Hệ thống giám sát và phát hiện bất thường mạng 5G-IoT theo thời gian thực với:
-- **Backend**: Flask API với tích hợp AI Model (Decision Tree)
+- **Backend**: Flask API với tích hợp AI Model (Random Forest)
 - **Frontend**: Dashboard hiện đại, responsive với Chart.js
 - **Architecture**: Clean code, dễ mở rộng, modular design
 
@@ -56,7 +56,7 @@ Endpoints:
 ### 2. **detection.py** - AI Detection Logic
 ```python
 Trách nhiệm:
-- Load AI model (Decision Tree)
+- Load AI model (Random Forest)
 - Tiền xử lý dữ liệu (preprocessing)
 - Chạy model.predict()
 - Tính toán anomaly score
@@ -146,7 +146,7 @@ python app.py
    • GET  /health           - Health check
 
 🤖 AI Model Status:
-   ✓ Trained Decision Tree model loaded
+   ✓ Trained Random Forest model loaded
    ✓ Features: ['throughput', 'latency', 'packet_loss', 'rssi']
 
 💾 Storage Configuration:
@@ -371,7 +371,7 @@ def send_to_dashboard(metrics):
 ## 🤖 AI Model Details
 
 ### Model Information
-- **Type**: Decision Tree Classifier
+- **Type**: Random Forest Classifier
 - **Algorithm**: Scikit-learn DecisionTreeClassifier
 - **Training Date**: 2026-02-27
 - **Features**: 4 network metrics
@@ -386,7 +386,7 @@ def send_to_dashboard(metrics):
 ### Model Files
 ```
 model/
-├── decision_tree_model_20260227_205406.pkl  # Trained model
+├── random_forest_model_20260227_205406.pkl  # Trained model
 ├── scaler_20260227_205406.pkl               # Feature scaler
 └── feature_names_20260227_205406.pkl        # Feature names
 ```

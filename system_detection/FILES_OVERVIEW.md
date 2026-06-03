@@ -10,12 +10,12 @@
    - Cung cấp Mininet CLI cho manual control
    - Sử dụng: `sudo python3 5g_iot_mininet.py`
 
-2. **edge_server.py**
-   - Edge Computing server với ML model
-   - Socket server listen trên port 5000
-   - Load Decision Tree model để phát hiện anomaly
-   - Xử lý requests từ IoT stations và trả về predictions
-   - Sử dụng: `python3 edge_server.py <model.pkl> <scaler.pkl>`
+2. **edge_server_with_dashboard.py**
+   - Edge Computing server với ML model và Dashboard Integration
+   - Socket server listen trên port 5001
+   - Load mô hình Machine Learning để phát hiện anomaly
+   - Xử lý requests từ IoT stations, gửi kết quả về dashboard và trả về predictions
+   - Sử dụng: `python3 edge_server_with_dashboard.py <model.pkl> <scaler.pkl> [dashboard_url]`
 
 3. **iot_station.py**
    - Giả lập IoT sensor node
@@ -40,11 +40,7 @@
    - Loop monitoring mỗi 5 giây
    - Sử dụng: `./quick_start.sh`
 
-6. **start_simulation.sh**
-   - Legacy script sử dụng tmux
-   - Start multiple terminals trong tmux session
-   - Phù hợp nếu muốn xem từng component riêng
-   - Sử dụng: `sudo ./start_simulation.sh`
+
 
 ## Documentation Files
 
@@ -67,7 +63,7 @@
 
 ## Model Files (trong ../model/)
 
-10. **decision_tree_model_*.pkl**
+10. **random_forest_model_*.pkl**
     - Trained Decision Tree Classifier
     - Input: 24 network features
     - Output: Benign / Malicious
@@ -123,13 +119,13 @@ tail -f /tmp/sta1.log
 
 ## Key Differences Between Scripts
 
-| Feature | quick_start.sh | run_auto_simulation.py | 5g_iot_mininet.py | start_simulation.sh |
-|---------|---------------|----------------------|------------------|-------------------|
-| Auto-start | ✅ | ✅ | ❌ Manual | ✅ (tmux) |
-| Monitoring | ✅ Realtime | ❌ Check logs | ❌ | ❌ |
-| CLI Access | ❌ | ✅ | ✅ | ✅ (per window) |
-| Complexity | 🟢 Easy | 🟡 Medium | 🔴 Advanced | 🟡 Medium |
-| Best For | Quick demo | Auto testing | Development | Multi-terminal |
+| Feature | quick_start.sh | run_auto_simulation.py | 5g_iot_mininet.py |
+|---------|---------------|----------------------|------------------|
+| Auto-start | ✅ | ✅ | ❌ Manual |
+| Monitoring | ✅ Realtime | ❌ Check logs | ❌ |
+| CLI Access | ❌ | ✅ | ✅ |
+| Complexity | 🟢 Easy | 🟡 Medium | 🔴 Advanced |
+| Best For | Quick demo | Auto testing | Development |
 
 ## Quick Reference Commands
 
@@ -156,7 +152,7 @@ sudo grep -c "Malicious" /tmp/edge_server.log
 
 # Kill processes
 sudo pkill -f "python3.*iot_station"
-sudo pkill -f "python3.*edge_server"
+sudo pkill -f "python3.*edge_server_with_dashboard"
 ```
 
 ## File Dependencies
@@ -164,17 +160,12 @@ sudo pkill -f "python3.*edge_server"
 ```
 run_auto_simulation.py
 ├── requires: 5g_iot_mininet.py (topology logic)
-├── calls: edge_server.py (on edge1 node)
+├── calls: edge_server_with_dashboard.py (on edge1 node)
 ├── calls: iot_station.py (on sta1, sta2 nodes)
 └── needs: ../model/*.pkl files
 
 quick_start.sh
 └── calls: run_auto_simulation.py
-
-start_simulation.sh
-├── calls: 5g_iot_mininet.py
-├── calls: edge_server.py
-└── calls: iot_station.py
 ```
 
 ## Important Notes

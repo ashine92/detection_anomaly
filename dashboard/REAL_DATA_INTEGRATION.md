@@ -341,7 +341,7 @@ if __name__ == "__main__":
     
     if len(sys.argv) < 3:
         print("Usage: python edge_server_with_dashboard.py <model_path> <scaler_path>")
-        print("Example: python edge_server_with_dashboard.py ../model/decision_tree_model.pkl ../model/scaler.pkl")
+        print("Example: python edge_server_with_dashboard.py ../model/random_forest_model.pkl ../model/scaler.pkl")
         sys.exit(1)
     
     model_path = sys.argv[1]
@@ -575,7 +575,7 @@ python app.py
 
 # Terminal 2: Start Edge Server với Dashboard
 cd system_detection
-python edge_server_with_dashboard.py ../model/decision_tree_model*.pkl ../model/scaler*.pkl
+python edge_server_with_dashboard.py ../model/random_forest_model*.pkl ../model/scaler*.pkl
 
 # Terminal 3: Run IoT Stations
 python iot_station.py

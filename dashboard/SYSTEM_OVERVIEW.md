@@ -6,7 +6,7 @@
 detection_anomaly/
 │
 ├── model/                                  # AI Models
-│   ├── decision_tree_model_*.pkl          # Trained Decision Tree
+│   ├── random_forest_model_*.pkl          # Trained Random Forest
 │   ├── scaler_*.pkl                       # Feature scaler
 │   └── feature_names_*.pkl                # Feature names
 │
@@ -187,7 +187,7 @@ Input Metrics
     • Reshape for model input
     ↓
 [3] Model Prediction
-    • Decision Tree Classifier
+    • Random Forest Classifier
     • Input: 4 features
     • Output: class (0=normal, 1=anomaly)
     • Probability: anomaly score (0-1)

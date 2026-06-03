@@ -35,7 +35,7 @@ check_python_deps() {
 check_model_files() {
     echo "[*] Checking model files..."
     MODEL_DIR="../model"
-    if [ -f "$MODEL_DIR/decision_tree_model_"*.pkl ] && [ -f "$MODEL_DIR/scaler_"*.pkl ]; then
+    if [ -f "$MODEL_DIR/random_forest_model_"*.pkl ] && [ -f "$MODEL_DIR/scaler_"*.pkl ]; then
         echo "    ✓ Model files found"
         ls -lh "$MODEL_DIR"/*.pkl 2>/dev/null | awk '{print "      -", $9, "("$5")"}'
     else
@@ -56,9 +56,9 @@ check_running_processes() {
     fi
     
     # Check for edge server
-    if pgrep -f "edge_server.py" > /dev/null; then
+    if pgrep -f "edge_server_with_dashboard.py" > /dev/null; then
         echo "    ⚠  Edge server is running"
-        pgrep -a -f "edge_server.py"
+        pgrep -a -f "edge_server_with_dashboard.py"
     else
         echo "    ✓ No edge server processes"
     fi
@@ -147,7 +147,7 @@ do_cleanup() {
     # Kill processes
     echo "    - Killing Python processes..."
     sudo pkill -f "python3.*iot_station" 2>/dev/null
-    sudo pkill -f "python3.*edge_server" 2>/dev/null
+    sudo pkill -f "python3.*edge_server_with_dashboard" 2>/dev/null
     sudo pkill -f "python3.*run_auto_simulation" 2>/dev/null
     
     # Remove logs

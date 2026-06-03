@@ -42,12 +42,12 @@ pip3 install scikit-learn numpy joblib pandas matplotlib seaborn
 
 Files cần copy:
 - `5g_iot_mininet.py`
-- `edge_server.py`  
+- `edge_server_with_dashboard.py`  
 - `iot_station.py`
-- `decision_tree_model_20260227_205406.pkl`
-- `scaler_20260227_205406.pkl`
-- `feature_names_20260227_205406.pkl`
-- `start_simulation.sh`
+- `random_forest_model_OPTIMIZED_20260603_220451.pkl`
+- `scaler_OPTIMIZED_20260603_220451.pkl`
+- `feature_names_OPTIMIZED_20260603_220451.pkl`
+- `quick_start.sh`
 
 ### Cách 1: Qua Windows filesystem
 ```bash
@@ -72,8 +72,8 @@ cp /mnt/d/Study/DH/"IoT in 5G"/*.sh .
 ### Option A: Tự động (khuyến nghị)
 ```bash
 cd ~/5g-iot-project
-chmod +x start_simulation.sh
-sudo ./start_simulation.sh
+chmod +x quick_start.sh
+sudo ./quick_start.sh
 ```
 
 ### Option B: Thủ công
@@ -87,7 +87,7 @@ sudo python3 5g_iot_mininet.py
 ```bash
 mininet-wifi> xterm edge1
 # Trong terminal edge1:
-python3 edge_server.py decision_tree_model_20260227_205406.pkl scaler_20260227_205406.pkl
+python3 edge_server_with_dashboard.py random_forest_model_OPTIMIZED_20260603_220451.pkl scaler_OPTIMIZED_20260603_220451.pkl
 ```
 
 **Terminal 3** - IoT Station 1:
@@ -172,22 +172,6 @@ Windows 10/11
 └───────────────────────────────────┘
 ```
 
-## Monitoring với tmux
-
-Nếu dùng `start_simulation.sh`:
-```bash
-# Attach vào session
-tmux attach -t 5g-iot-sim
-
-# Switch giữa các windows
-Ctrl+B rồi nhấn số: 0, 1, 2, 3
-
-# Detach (không tắt)
-Ctrl+B rồi nhấn d
-
-# Kill session
-tmux kill-session -t 5g-iot-sim
-```
 
 ## Visualization (Optional)
 

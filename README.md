@@ -22,7 +22,7 @@ detection_anomaly/
 │
 ├── model_development/              # 📊 Data Analysis & Training
 │   ├── explore-dataset.ipynb       # Original dataset exploration
-│   └── retrain-model-improved.ipynb # Model training with hyperparameter tuning
+│   └── retrain-model-FINAL-OPTIMIZED.ipynb # Model training with hyperparameter tuning
 │
 ├── dataset/                        # 📁 Training Dataset
 │   └── Encoded.csv                 # 5G-IoT network traffic data
@@ -34,7 +34,6 @@ detection_anomaly/
     ├── iot_station.py              # IoT sensor data generator
     ├── run_auto_simulation.py      # Auto-start script
     ├── quick_start.sh              # Quick start launcher
-    ├── start_simulation.sh         # Tmux-based launcher
     ├── README.md                   # Detailed guide
     ├── QUICKSTART_REAL_DATA.md     # Quick reference
     └── WINDOWS_WSL2_SETUP.md       # WSL2 setup guide
@@ -64,7 +63,7 @@ python3 app.py
 
 # Terminal 2: Start Edge Server with Dashboard Integration
 cd detection_anomaly/system_detection
-python3 edge_server_with_dashboard.py ../model/decision_tree_model_IMPROVED_*.pkl ../model/scaler_IMPROVED_*.pkl
+python3 edge_server_with_dashboard.py ../model/decision_tree_model_*.pkl ../model/scaler_*.pkl
 
 # Terminal 3: Run IoT Simulation
 python3 iot_station.py sta1 2 0.2
@@ -99,9 +98,9 @@ Xem hướng dẫn đầy đủ trong [system_detection/README.md](system_detect
 - **Purpose**: Phân tích dataset, feature engineering, train models
 - **Files**:
   - `explore-dataset.ipynb` - Dataset exploration ban đầu
-  - `retrain-model-improved.ipynb` - Model training với hyperparameter tuning
+  - `retrain-model-FINAL-OPTIMIZED.ipynb` - Model training với hyperparameter tuning
 - **Output**: Trained models trong folder `model/`
-- **Method**: GridSearchCV với Decision Tree (max_depth, min_samples tuning)
+- **Method**: GridSearchCV với Random Forest / Decision Tree (max_depth, min_samples tuning)
 
 ### 3. Network Simulation 🔬
 - **Location**: `system_detection/`
@@ -146,16 +145,16 @@ Xem hướng dẫn đầy đủ trong [system_detection/README.md](system_detect
 
 | File | Nội dung | Được tạo bởi |
 |------|----------|--------------|
-| `decision_tree_model_IMPROVED_*.pkl` | Trained Decision Tree (24 features) | retrain-model-improved.ipynb |
-| `scaler_IMPROVED_*.pkl` | StandardScaler cho features | retrain-model-improved.ipynb |
-| `feature_names_IMPROVED_*.pkl` | Tên 24 features | retrain-model-improved.ipynb |
+| `decision_tree_model_*.pkl` | Trained ML Model (24 features) | retrain-model-FINAL-OPTIMIZED.ipynb |
+| `scaler_*.pkl` | StandardScaler/RobustScaler cho features | retrain-model-FINAL-OPTIMIZED.ipynb |
+| `feature_names_*.pkl` | Tên 24 features | retrain-model-FINAL-OPTIMIZED.ipynb |
 
 ### Development Files
 
 | File | Purpose | Dùng khi |
 |------|---------|----------|
 | `model_development/explore-dataset.ipynb` | Dataset EDA, initial training | Khám phá dataset lần đầu |
-| `model_development/retrain-model-improved.ipynb` | Model training với tuning | Retrain model sau khi có dataset mới |
+| `model_development/retrain-model-FINAL-OPTIMIZED.ipynb` | Model training với tuning | Retrain model sau khi có dataset mới |
 | `dataset/Encoded.csv` | Training data (5G-IoT traffic) | Input cho model training |
 
 ### Documentation Files
@@ -216,12 +215,12 @@ Xem hướng dẫn đầy đủ trong [system_detection/README.md](system_detect
 │        ↓                      ↓                      ↓            │
 │   dataset/            model_development/     system_detection/   │
 │  Encoded.csv         retrain-model-         edge_server_with_    │
-│  (Training)          improved.ipynb         dashboard.py         │
+│  (Training)          FINAL-OPTIMIZED.ipynb  dashboard.py         │
 │                      (GridSearchCV)                               │
 │                           ↓                                       │
 │                      model/                                       │
-│                   decision_tree_                                  │
-│                   IMPROVED_*.pkl                                  │
+│                   decision_tree_model_                            │
+│                   *.pkl                                           │
 │                                                                    │
 ├────────────────────────────────────────────────────────────────────┤
 │                    RUNTIME ARCHITECTURE                            │
@@ -380,6 +379,6 @@ Educational project - Free to use with attribution
 **Getting Started**: 
 - 🌐 **Web Dashboard**: Xem phần [Quick Start](#-quick-start) để chạy dashboard
 - 🔬 **Simulation**: Xem [system_detection/README.md](system_detection/README.md) để setup Mininet
-- 🤖 **Model Training**: Xem [model_development/retrain-model-improved.ipynb](model_development/retrain-model-improved.ipynb)
+- 🤖 **Model Training**: Xem [model_development/retrain-model-FINAL-OPTIMIZED.ipynb](model_development/retrain-model-FINAL-OPTIMIZED.ipynb)
 
 **Support**: Mở browser → `http://localhost:5000` để xem dashboard!

@@ -93,16 +93,15 @@ pip3 install --break-system-packages scikit-learn joblib pandas
 ```
 detection_anomaly/
 ├── model/
-│   ├── decision_tree_model_20260227_205406.pkl
-│   ├── scaler_20260227_205406.pkl
-│   └── feature_names_20260227_205406.pkl
+│   ├── random_forest_model_OPTIMIZED_20260603_220451.pkl
+│   ├── scaler_OPTIMIZED_20260603_220451.pkl
+│   └── feature_names_OPTIMIZED_20260603_220451.pkl
 └── system_detection/
     ├── 5g_iot_mininet.py
-    ├── edge_server.py
+    ├── edge_server_with_dashboard.py
     ├── iot_station.py
     ├── run_auto_simulation.py
-    ├── quick_start.sh
-    └── start_simulation.sh
+    └── quick_start.sh
 ```
 
 ## 🚀 Cách sử dụng
@@ -166,7 +165,7 @@ sudo python3 5g_iot_mininet.py
 mininet-wifi> xterm edge1
 # Trong cửa sổ edge1:
 cd /path/to/system_detection
-python3 -u edge_server.py ../model/decision_tree_model_*.pkl ../model/scaler_*.pkl
+python3 -u edge_server_with_dashboard.py ../model/random_forest_model_*.pkl ../model/scaler_*.pkl
 ```
 
 **Terminal 3** - IoT Station 1:
@@ -186,18 +185,6 @@ cd /path/to/system_detection
 python3 iot_station.py sta2 3 0.15
 ```
 
-### Cách 4: Tmux Mode (Nhiều terminal)
-
-```bash
-chmod +x start_simulation.sh
-sudo ./start_simulation.sh
-```
-
-Lệnh tmux hữu ích:
-- `tmux attach -t 5g-iot-sim` - Attach vào session
-- `Ctrl+B` rồi `0-3` - Chuyển giữa các window
-- `Ctrl+B` rồi `d` - Detach khỏi session
-- `tmux kill-session -t 5g-iot-sim` - Dừng tất cả
 
 ## 📊 Monitoring và Logs
 
@@ -263,14 +250,15 @@ python3 iot_station.py sta1 5 0.3
 
 ### Thay đổi IP/Port Edge Server
 
-Trong `edge_server.py`:
+Trong `edge_server_with_dashboard.py`:
 ```python
-def __init__(self, model_path, scaler_path, host='0.0.0.0', port=5000):
+def __init__(self, model_path, scaler_path, host='0.0.0.0', port=5001,
+             dashboard_url='http://localhost:5000/api/metrics'):
 ```
 
 Trong `iot_station.py`:
 ```python
-def __init__(self, device_id, edge_ip='10.0.0.100', edge_port=5000):
+def __init__(self, device_id, edge_ip='10.0.0.100', edge_port=5001):
 ```
 
 ### Thêm IoT Stations
@@ -323,11 +311,10 @@ Warning này an toàn, model vẫn hoạt động bình thường. Để loại 
 ```
 system_detection/
 ├── 5g_iot_mininet.py          # Định nghĩa topology mạng
-├── edge_server.py              # ML detection server
+├── edge_server_with_dashboard.py # ML detection server
 ├── iot_station.py              # IoT sensor simulator
 ├── run_auto_simulation.py      # Auto start script (khuyến nghị)
 ├── quick_start.sh              # Quick start với monitoring
-├── start_simulation.sh         # Tmux-based start script
 ├── README.md                   # File này
 └── WINDOWS_WSL2_SETUP.md       # Hướng dẫn cho WSL2 users
 ```
@@ -359,7 +346,7 @@ sudo rm /tmp/*.log
 
 # Kill processes nếu cần
 sudo pkill -f "python3.*iot_station"
-sudo pkill -f "python3.*edge_server"
+sudo pkill -f "python3.*edge_server_with_dashboard"
 ```
 
 ## 🤝 Đóng góp

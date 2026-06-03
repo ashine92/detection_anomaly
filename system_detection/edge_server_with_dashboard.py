@@ -152,8 +152,17 @@ class EdgeIoTDetectionServerWithDashboard:
             }
     
     def detect_anomaly(self, features):
-        """Phát hiện anomaly từ 24 features"""
+        """Phát hiện anomaly từ 24 features cơ bản + 3 engineered features"""
         try:
+            # Tính toán 3 engineered features nếu model có 27 features
+            if len(self.feature_names) == 27 and len(features) == 24:
+                bytes_ratio = features[7] / (features[6] + 1)  # SrcBytes / (TotBytes + 1)
+                pkt_size_ratio = features[9] / (features[10] + 1)  # sMeanPktSz / (dMeanPktSz + 1)
+                ttl_diff = abs(features[3] - features[4])  # abs(sTtl - dTtl)
+                
+                # Append 3 features mới vào cuối danh sách (giữ nguyên thứ tự cột)
+                features.extend([bytes_ratio, pkt_size_ratio, ttl_diff])
+                
             features_array = np.array(features).reshape(1, -1)
             features_scaled = self.scaler.transform(features_array)
             

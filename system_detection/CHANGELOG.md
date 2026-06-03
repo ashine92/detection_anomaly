@@ -21,7 +21,7 @@
 
 4. **Edge Server Binding Issue**
    - **Root Cause**: Server bind vào IP cụ thể `10.0.0.100` thay vì all interfaces
-   - **Fix**: Đổi thành `0.0.0.0` trong `edge_server.py`
+   - **Fix**: Đổi thành `0.0.0.0` trong `edge_server_with_dashboard.py`
    - **Impact**: Server có thể nhận connections từ tất cả interfaces
 
 ### ✨ New Features
@@ -83,7 +83,7 @@
 
 ### 🔧 Configuration Changes
 
-**edge_server.py:**
+**edge_server_with_dashboard.py:**
 ```python
 # Before:
 def __init__(self, model_path, scaler_path, host='10.0.0.100', port=5000):

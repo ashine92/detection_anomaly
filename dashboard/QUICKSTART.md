@@ -38,7 +38,7 @@ Bạn sẽ thấy:
    • http://localhost:5000
 
 🤖 AI Model Status:
-   ✓ Trained Decision Tree model loaded
+   ✓ Trained Random Forest model loaded
    ✓ Features: ['throughput', 'latency', 'packet_loss', 'rssi']
 ======================================================================
 
@@ -89,7 +89,7 @@ Dashboard sẽ tự động cập nhật với dữ liệu test!
 
 | Feature | Description |
 |---------|------------|
-| **AI Detection** | Tự động phát hiện anomaly bằng Decision Tree model |
+| **AI Detection** | Tự động phát hiện anomaly bằng Random Forest model |
 | **Real-time Charts** | Biểu đồ cập nhật mỗi 2 giây |
 | **Statistics** | Total Requests, Anomalies, Anomaly Rate (%) |
 | **Status Indicator** | 🟢 Green = Normal, 🔴 Red = Anomaly |
@@ -158,7 +158,7 @@ dashboard/
 │   └── index.html      # Dashboard UI
 │
 └── model/              # AI models
-    ├── decision_tree_model_*.pkl
+    ├── random_forest_model_*.pkl
     ├── scaler_*.pkl
     └── feature_names_*.pkl
 ```

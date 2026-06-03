@@ -18,8 +18,8 @@ ls ../model/
 
 # Chạy Edge Server (thay tên file cho đúng)
 python edge_server_with_dashboard.py \
-    ../model/decision_tree_model_20260227_205406.pkl \
-    ../model/scaler_20260227_205406.pkl
+    ../model/random_forest_model_OPTIMIZED_20260603_220451.pkl \
+    ../model/scaler_OPTIMIZED_20260603_220451.pkl
 ```
 ✅ Edge Server lắng nghe tại **port 5001**, tự động gửi metrics đến Dashboard (port 5000)
 
@@ -106,7 +106,7 @@ cd model/
 ls -lh *.pkl
 
 # Should see:
-# decision_tree_model_*.pkl
+# random_forest_model_*.pkl
 # scaler_*.pkl
 # feature_names_*.pkl
 ```

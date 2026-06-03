@@ -127,7 +127,7 @@ mininet-wifi> exit               # Quit simulation
 ### Inside Node Terminals
 ```bash
 # On edge1:
-python3 -u edge_server.py ../model/decision_tree_model_*.pkl ../model/scaler_*.pkl
+python3 -u edge_server_with_dashboard.py ../model/random_forest_model_*.pkl ../model/scaler_*.pkl
 
 # On sta1:
 python3 iot_station.py sta1 2 0.2

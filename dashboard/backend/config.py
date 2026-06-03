@@ -24,10 +24,17 @@ class Config:
     MAX_ANOMALY_EVENTS = 200  # Maximum anomaly events to store
     
     # ========== AI Model Configuration ==========
-    # Model files (auto-detect latest)
-    MODEL_PATH = os.path.join(MODEL_DIR, 'decision_tree_model_20260227_205406.pkl')
-    SCALER_PATH = os.path.join(MODEL_DIR, 'scaler_20260227_205406.pkl')
-    FEATURE_NAMES_PATH = os.path.join(MODEL_DIR, 'feature_names_20260227_205406.pkl')
+    import glob
+    model_files = glob.glob(os.path.join(MODEL_DIR, 'random_forest_model_*.pkl'))
+    if model_files:
+        MODEL_PATH = max(model_files, key=os.path.getctime)
+        timestamp = os.path.basename(MODEL_PATH).split('_')[-1].split('.')[0]
+        SCALER_PATH = glob.glob(os.path.join(MODEL_DIR, f'scaler_*_{timestamp}.pkl'))[0] if glob.glob(os.path.join(MODEL_DIR, f'scaler_*_{timestamp}.pkl')) else glob.glob(os.path.join(MODEL_DIR, 'scaler_*.pkl'))[0]
+        FEATURE_NAMES_PATH = glob.glob(os.path.join(MODEL_DIR, f'feature_names_*_{timestamp}.pkl'))[0] if glob.glob(os.path.join(MODEL_DIR, f'feature_names_*_{timestamp}.pkl')) else glob.glob(os.path.join(MODEL_DIR, 'feature_names_*.pkl'))[0]
+    else:
+        MODEL_PATH = os.path.join(MODEL_DIR, 'random_forest_model_OPTIMIZED_20260603_220451.pkl')
+        SCALER_PATH = os.path.join(MODEL_DIR, 'scaler_OPTIMIZED_20260603_220451.pkl')
+        FEATURE_NAMES_PATH = os.path.join(MODEL_DIR, 'feature_names_OPTIMIZED_20260603_220451.pkl')
     
     # Model type: 'trained' or 'mock'
     MODEL_TYPE = 'trained'  # Use trained model if files exist
