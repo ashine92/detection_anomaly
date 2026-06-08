@@ -8,7 +8,6 @@ Hệ thống hỗ trợ **2 chế độ vận hành**:
 
 ---
 
----
 
 ## 🏗️ Kiến trúc hệ thống
 
