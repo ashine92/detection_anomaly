@@ -8,41 +8,6 @@ Hệ thống hỗ trợ **2 chế độ vận hành**:
 
 ---
 
-## 📋 Project Structure
-
-```
-detection_anomaly/
-├── README.md                       # File này
-├── test_ai_system.py               # 🧪 Test suite toàn bộ hệ thống AI
-│
-├── dashboard/                      # 🌐 Web Monitoring Dashboard
-│   ├── backend/
-│   │   ├── app.py                  # Flask API — Routes & endpoints
-│   │   ├── config.py               # Cấu hình server + model paths
-│   │   ├── detection.py            # ⚠️ DEPRECATED — không còn được dùng
-│   │   └── storage.py              # In-memory data storage
-│   └── frontend/
-│       └── index.html              # Real-time charts & tables
-│
-├── model/                          # 🤖 Trained Model Files
-│   ├── random_forest_model_20260305_223751.pkl   # Random Forest (24 features)
-│   ├── scaler_20260305_223751.pkl                # StandardScaler
-│   └── feature_names_20260305_223751.pkl         # Tên 24 features
-│
-├── model_development/
-│   └── train-model.ipynb           # Training notebook
-│
-├── dataset/
-│   └── Encoded.csv                 # 5G-IoT traffic dataset
-│
-└── system_detection/               # 🔬 Network Simulation
-    ├── edge_server_with_dashboard.py  # ⭐ Edge Server chính (port 5001)
-    ├── iot_station.py              # IoT traffic generator (24 features)
-    ├── dashboard_client.py         # HTTP client gửi kết quả → dashboard
-    ├── 5g_iot_mininet.py           # ⭐ Mininet-WiFi 5G topology
-    └── ...
-```
-
 ---
 
 ## 🏗️ Kiến trúc hệ thống
